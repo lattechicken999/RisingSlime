@@ -55,6 +55,13 @@ namespace RaisingSlimeUnits
 	constexpr float DefaultPitch = -22.f;
 	constexpr float PitchMin = -70.f;
 	constexpr float PitchMax = 50.f;
+	/** Vertical FOV (degrees) when using AspectRatio_MaintainYFOV. Horiz 16:9 equiv ≈ 110.43. */
+	constexpr float VerticalFovDegrees = 78.f;
+	constexpr float HorizontalFov16x9Equiv = 110.43f;
 	constexpr float BodyHeightCm = 55.f;
 	constexpr float NestSpawnZCm = 16.f;
+	constexpr float MoveSpeedMaxMps = 6.2f;
+	constexpr float MoveDecelMps2 = 36.f;
+	constexpr float JumpSpeedMps = 7.2f;
+	constexpr float GravityMps2 = 20.f; // |SlimeGravityCm| / 100
 }

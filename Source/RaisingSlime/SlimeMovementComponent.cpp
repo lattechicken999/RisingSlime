@@ -38,7 +38,7 @@ void USlimeMovementComponent::StepFixed(float Dt, ASlimePawn* Pawn, AExpeditionD
 	}
 
 	const float Mass = Director ? Director->GetTotalMass() : 0.f;
-	float Speed = FMath::Clamp(6.2f - Mass * 0.07f, 3.4f, 6.2f);
+	float Speed = FMath::Clamp(RaisingSlimeUnits::MoveSpeedMaxMps - Mass * 0.07f, 3.4f, RaisingSlimeUnits::MoveSpeedMaxMps);
 	const bool bBounce = Director && Director->GetActiveTrait() == ETraitId::Bounce;
 	const bool bConfirmed = Director && Director->IsActiveConfirmed();
 	if (bBounce && bConfirmed)
@@ -67,7 +67,7 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 		const FRotator YawRot(0.f, Pawn->GetViewYaw(), 0.f);
 		// Enhanced Input Axis2D: X = A/D (right), Y = W/S (forward)
 		const FVector Desired = YawRot.RotateVector(FVector(Input.Y, Input.X, 0.f)) * (SpeedMps * RaisingSlimeUnits::MetersToCm);
-		const float Rate = Input.SizeSquared() > 0.01f ? 16.f : 36.f;
+		const float Rate = Input.SizeSquared() > 0.01f ? 16.f : RaisingSlimeUnits::MoveDecelMps2;
 		const float MaxDelta = Rate * RaisingSlimeUnits::MetersToCm * Dt;
 		const FVector Diff = Desired - PlanarVelocity;
 		const float Dist = Diff.Size();
@@ -101,7 +101,7 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 	{
 		if (bGrounded)
 		{
-			VerticalVelocity = (bBounce && bBounceConfirmed ? 8.2f : 7.2f) * RaisingSlimeUnits::MetersToCm;
+			VerticalVelocity = (bBounce && bBounceConfirmed ? 8.2f : RaisingSlimeUnits::JumpSpeedMps) * RaisingSlimeUnits::MetersToCm;
 			bOutJumpConsumed = true;
 		}
 		else if (bBounce && bExtraJump)

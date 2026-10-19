@@ -56,7 +56,8 @@ ASlimePawn::ASlimePawn()
 	MainCamera->AspectRatioAxisConstraint = AspectRatio_MaintainYFOV;
 	MainCamera->AspectRatio = 1.777778f;
 	MainCamera->bConstrainAspectRatio = false;
-	MainCamera->FieldOfView = 110.43f;
+	// MaintainYFOV → FieldOfView is vertical. Spec §17: 78° vertical (≈110.43° horiz @16:9).
+	MainCamera->FieldOfView = RaisingSlimeUnits::VerticalFovDegrees;
 	MainCamera->SetRelativeRotation(FRotator(Pitch, 0.f, 0.f));
 
 	Movement = CreateDefaultSubobject<USlimeMovementComponent>(TEXT("Movement"));

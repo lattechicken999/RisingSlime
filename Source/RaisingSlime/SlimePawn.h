@@ -29,13 +29,28 @@ public:
 	virtual void PossessedBy(AController* NewController) override;
 
 	USphereComponent* GetCollisionSphere() const { return Collision; }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime")
+	UCameraComponent* GetMainCamera() const { return MainCamera; }
+
+	USlimeMovementComponent* GetSlimeMovement() const { return Movement; }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime")
 	float GetHp() const { return Hp; }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime")
 	float GetMaxHp() const { return MaxHp; }
+
 	float GetChannel01() const { return Channel01; }
 	float GetViewYaw() const { return Yaw; }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime")
+	float GetViewPitch() const { return Pitch; }
+
 	AActor* GetEngulfTarget() const;
 	AActor* GetAimedPrey() const;
 
+	UFUNCTION(BlueprintCallable, Category = "Slime")
 	void RefreshBody();
 	void NotifyAte();
 	void Recover();

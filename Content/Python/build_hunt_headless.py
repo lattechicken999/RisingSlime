@@ -159,6 +159,8 @@ def build():
     rock = spawn_actor("/Script/RaisingSlime.Devourable", "Prey_Rock", (6.2, 0.42, 5.4), (0.70, 0.55, 0.70))
     if rock:
         set_prop(rock, "display_name", "돌")
+        set_prop(rock, "kind", unreal.PreyKind.OBJECT)
+        set_prop(rock, "trait", unreal.TraitId.HARDEN)
         set_prop(rock, "mass", 2.0)
         set_prop(rock, "base_chance", 0.62)
         mesh = load_mesh("/Engine/BasicShapes/Sphere")
@@ -168,6 +170,8 @@ def build():
     rubber = spawn_actor("/Script/RaisingSlime.Devourable", "Prey_Rubber", (-4.2, 0.34, 6.6), 0.62)
     if rubber:
         set_prop(rubber, "display_name", "고무")
+        set_prop(rubber, "kind", unreal.PreyKind.OBJECT)
+        set_prop(rubber, "trait", unreal.TraitId.BOUNCE)
         set_prop(rubber, "mass", 2.0)
         set_prop(rubber, "base_chance", 0.58)
         mesh = load_mesh("/Engine/BasicShapes/Cube")

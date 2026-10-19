@@ -22,6 +22,8 @@ public:
 	bool CanDevour() const;
 
 	float GetChannelTime() const { return Kind == EPreyKind::Creature ? 0.85f : 0.22f; }
+
+	UFUNCTION(BlueprintCallable, Category = "Prey")
 	bool IsConsumed() const { return bConsumed; }
 
 	void StoreHome();

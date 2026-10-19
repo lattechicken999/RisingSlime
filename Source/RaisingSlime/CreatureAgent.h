@@ -19,7 +19,10 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void RestoreScenePlacement() override;
 
+	UFUNCTION(BlueprintCallable, Category = "Creature")
 	bool IsDowned() const { return bDowned; }
+
+	UFUNCTION(BlueprintCallable, Category = "Creature")
 	float GetHp() const { return Hp; }
 
 	void TakeHit(float Damage, bool bApplyPoison, float Dps, float Duration);

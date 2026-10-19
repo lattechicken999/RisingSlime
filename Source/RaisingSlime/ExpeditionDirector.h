@@ -21,10 +21,18 @@ public:
 	void RegisterSlime(ASlimePawn* InSlime);
 	ASlimePawn* GetSlime() const { return Slime; }
 
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	float GetSettledMass() const { return SettledMass; }
+
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	float GetRunMass() const { return RunMass; }
+
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	float GetTotalMass() const { return SettledMass + RunMass; }
+
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	int32 GetSlotCapacity() const { return 1 + FMath::FloorToInt(SettledMass / 10.f); }
+
 	ETraitId GetActiveTrait() const { return Active; }
 	bool IsActiveConfirmed() const;
 	const TArray<ETraitId>& GetConfirmedTraits() const { return Confirmed; }
@@ -33,11 +41,17 @@ public:
 
 	void CopyOwned(TArray<ETraitId>& OutOwned) const;
 	float PreviewChance(const ADevourable* Prey) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	void CompleteDevour(ADevourable* Prey);
+
 	void CycleActive();
 	bool TryConfirm(ETraitId Trait);
 	void Spit(ETraitId Trait);
+
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	void Settle();
+
 	void Die();
 	void ResetWorld();
 
