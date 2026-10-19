@@ -135,7 +135,7 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 	const bool bBlocked = SweepMove(Pawn, Delta, Hit);
 	if (bBlocked)
 	{
-		const FVector Normal = Hit.ImpactNormal;
+		const FVector Normal = Hit.bStartPenetrating ? Hit.Normal : Hit.ImpactNormal;
 		if (Normal.Z > 0.55f)
 		{
 			bGrounded = true;
@@ -143,6 +143,11 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 			if (VerticalVelocity < 0.f)
 			{
 				VerticalVelocity = 0.f;
+			}
+			// Escape floor penetration so lateral sweeps are not stuck at Distance=0.
+			if (Hit.bStartPenetrating)
+			{
+				Pawn->AddActorWorldOffset(FVector(0.f, 0.f, FMath::Max(2.f, -Hit.PenetrationDepth + 2.f)), false);
 			}
 		}
 		else
@@ -169,7 +174,7 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 		}
 	}
 
-	// Ground probe from sphere bottom
+	// Ground probe against WorldStatic (floors), not ECC_Pawn (can miss greybox).
 	if (USphereComponent* Sphere = Pawn->GetCollisionSphere())
 	{
 		const FVector Center = Sphere->GetComponentLocation();
@@ -177,8 +182,8 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 		FHitResult GroundHit;
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(SlimeGround), false, Pawn);
 		const FVector Start = Center;
-		const FVector End = Center - FVector(0.f, 0.f, Radius + 8.f);
-		if (Pawn->GetWorld()->SweepSingleByChannel(GroundHit, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(Radius * 0.98f), Params))
+		const FVector End = Center - FVector(0.f, 0.f, Radius + 12.f);
+		if (Pawn->GetWorld()->SweepSingleByChannel(GroundHit, Start, End, FQuat::Identity, ECC_WorldStatic, FCollisionShape::MakeSphere(Radius * 0.95f), Params))
 		{
 			if (GroundHit.ImpactNormal.Z > 0.55f)
 			{
@@ -198,26 +203,33 @@ bool USlimeMovementComponent::SweepMove(ASlimePawn* Pawn, const FVector& Delta, 
 		return false;
 	}
 
-	const FVector Start = Pawn->GetActorLocation();
-	const FVector End = Start + Delta;
+	const FVector ActorStart = Pawn->GetActorLocation();
+	const FVector SphereStart = Sphere->GetComponentLocation();
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(SlimeMove), false, Pawn);
+	// WorldStatic: Hunt floors/stones. ECC_Pawn sweeps often miss BlockAll static meshes.
 	const bool bHit = Pawn->GetWorld()->SweepSingleByChannel(
 		OutHit,
-		Sphere->GetComponentLocation(),
-		Sphere->GetComponentLocation() + Delta,
+		SphereStart,
+		SphereStart + Delta,
 		FQuat::Identity,
-		ECC_Pawn,
+		ECC_WorldStatic,
 		FCollisionShape::MakeSphere(Sphere->GetScaledSphereRadius()),
 		Params);
 
 	if (bHit)
 	{
-		const float Travel = FMath::Max(0.f, OutHit.Distance - 0.1f);
+		if (OutHit.bStartPenetrating)
+		{
+			const FVector Push = OutHit.Normal * (FMath::Abs(OutHit.PenetrationDepth) + 2.f);
+			Pawn->SetActorLocation(ActorStart + Push, false);
+			return true;
+		}
+		const float Travel = FMath::Max(0.f, OutHit.Distance - 0.25f);
 		const FVector Dir = Delta.GetSafeNormal();
-		Pawn->SetActorLocation(Start + Dir * Travel, false);
+		Pawn->SetActorLocation(ActorStart + Dir * Travel, false);
 		return true;
 	}
 
-	Pawn->SetActorLocation(End, false);
+	Pawn->SetActorLocation(ActorStart + Delta, false);
 	return false;
 }

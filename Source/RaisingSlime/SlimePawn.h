@@ -115,6 +115,7 @@ protected:
 	float HardenCooldown = 0.f;
 	bool bJumpQueued = false;
 	bool bEnhancedInputBound = false;
+	bool bLoggedMoveInput = false;
 
 	FVector2D MoveInput = FVector2D::ZeroVector;
 

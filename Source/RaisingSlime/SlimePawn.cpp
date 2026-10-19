@@ -30,11 +30,14 @@ ASlimePawn::ASlimePawn()
 
 	Collision = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));
 	Collision->SetupAttachment(SceneRoot);
+	// Keep sphere bottom at/above actor feet so sweeps are not start-penetrating the floor.
 	Collision->SetRelativeLocation(FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm));
-	Collision->InitSphereRadius(57.5f);
+	Collision->InitSphereRadius(50.f);
 	Collision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	Collision->SetCollisionObjectType(ECC_Pawn);
-	Collision->SetCollisionResponseToAllChannels(ECR_Block);
+	Collision->SetCollisionResponseToAllChannels(ECR_Overlap);
+	Collision->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+	Collision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
 	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	Collision->SetSimulatePhysics(false);
 	Collision->SetGenerateOverlapEvents(true);
@@ -172,6 +175,47 @@ void ASlimePawn::Tick(float DeltaSeconds)
 	ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController());
 	const bool bMenu = IsMenuBlocking();
 
+	// Poll WASD/Space from the PC every frame. Enhanced Input Axis2D bindings can fail to
+	// deliver (IME, Completed zeroing, modifier order) even when BindAction succeeded.
+	if (PC && !bMenu)
+	{
+		FVector2D KeyMove = FVector2D::ZeroVector;
+		if (PC->IsInputKeyDown(EKeys::W) || PC->IsInputKeyDown(EKeys::Up))
+		{
+			KeyMove.Y += 1.f;
+		}
+		if (PC->IsInputKeyDown(EKeys::S) || PC->IsInputKeyDown(EKeys::Down))
+		{
+			KeyMove.Y -= 1.f;
+		}
+		if (PC->IsInputKeyDown(EKeys::D) || PC->IsInputKeyDown(EKeys::Right))
+		{
+			KeyMove.X += 1.f;
+		}
+		if (PC->IsInputKeyDown(EKeys::A) || PC->IsInputKeyDown(EKeys::Left))
+		{
+			KeyMove.X -= 1.f;
+		}
+		if (KeyMove.SizeSquared() > KINDA_SMALL_NUMBER)
+		{
+			MoveInput = KeyMove.GetSafeNormal();
+			if (!bLoggedMoveInput)
+			{
+				bLoggedMoveInput = true;
+				UE_LOG(LogTemp, Log, TEXT("SlimePawn: WASD key poll active (MoveInput=%.2f,%.2f)"), MoveInput.X, MoveInput.Y);
+			}
+		}
+		else
+		{
+			MoveInput = FVector2D::ZeroVector;
+		}
+
+		if (PC->WasInputKeyJustPressed(EKeys::SpaceBar))
+		{
+			bJumpQueued = true;
+		}
+	}
+
 	// Raw mouse look when locked (bypass Mouse2D AxisConfig 0.07 so we can apply 0.22 deg/px)
 	if (PC && !bMenu && !PC->IsCursorUnlocked())
 	{
@@ -227,9 +271,9 @@ void ASlimePawn::Tick(float DeltaSeconds)
 	MainCamera->SetRelativeRotation(FRotator(Pitch, 0.f, 0.f));
 }
 
-void ASlimePawn::OnMove(const FInputActionValue& Value)
+void ASlimePawn::OnMove(const FInputActionValue& /*Value*/)
 {
-	MoveInput = Value.Get<FVector2D>();
+	// Movement is driven by Tick key poll (see Tick). Keep this bind so EI stays wired.
 }
 
 void ASlimePawn::OnLook(const FInputActionValue& /*Value*/)

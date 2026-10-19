@@ -4,6 +4,7 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
+#include "Framework/Application/SlateApplication.h"
 
 ARaisingSlimePlayerController::ARaisingSlimePlayerController()
 {
@@ -19,6 +20,13 @@ void ARaisingSlimePlayerController::BeginPlay()
 	EnsureRuntimeInput();
 	ApplyCursorState();
 	NotifyPossessedPawnToBindInput();
+	// Hangul IME can swallow WASD; force game viewport focus and English-friendly input mode.
+	FInputModeGameOnly Mode;
+	SetInputMode(Mode);
+	if (FSlateApplication::IsInitialized())
+	{
+		FSlateApplication::Get().SetAllUserFocusToGameViewport(EFocusCause::SetDirectly);
+	}
 }
 
 void ARaisingSlimePlayerController::SetupInputComponent()

@@ -58,7 +58,8 @@ namespace RaisingSlimeUnits
 	/** Vertical FOV (degrees) when using AspectRatio_MaintainYFOV. Horiz 16:9 equiv ≈ 110.43. */
 	constexpr float VerticalFovDegrees = 78.f;
 	constexpr float HorizontalFov16x9Equiv = 110.43f;
-	constexpr float BodyHeightCm = 55.f;
+	// Sphere radius is 50cm; keep center >= radius so feet sit on the floor, not in it.
+	constexpr float BodyHeightCm = 52.f;
 	constexpr float NestSpawnZCm = 16.f;
 	constexpr float MoveSpeedMaxMps = 6.2f;
 	constexpr float MoveDecelMps2 = 36.f;
