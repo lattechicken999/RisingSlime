@@ -10,6 +10,7 @@ class UStaticMeshComponent;
 class UCameraComponent;
 class USlimeMovementComponent;
 class UJellyDeformerComponent;
+class UMaterialInterface;
 class AExpeditionDirector;
 class ADevourable;
 class ARaisingSlimeHUD;
@@ -102,6 +103,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<UJellyDeformerComponent> Jelly;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> CachedSlimeMaterial;
 
 	float Hp = 100.f;
 	float MaxHp = 100.f;

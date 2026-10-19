@@ -15,6 +15,7 @@
 #include "InputActionValue.h"
 #include "Engine/StaticMesh.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Materials/MaterialInterface.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/OverlapResult.h"
 
@@ -46,6 +47,7 @@ ASlimePawn::ASlimePawn()
 	BodyMesh->SetupAttachment(SceneRoot);
 	BodyMesh->SetRelativeLocation(FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm));
 	BodyMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	BodyMesh->SetHiddenInGame(true); // Replaced by jelly procedural mesh (§13).
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (SphereMesh.Succeeded())
 	{
@@ -72,6 +74,18 @@ void ASlimePawn::BeginPlay()
 	Super::BeginPlay();
 	RefreshBody();
 	ApplyBodySize();
+	if (Jelly)
+	{
+		if (!CachedSlimeMaterial)
+		{
+			CachedSlimeMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_Slime.M_Slime"));
+		}
+		if (CachedSlimeMaterial)
+		{
+			Jelly->SetSlimeMaterial(CachedSlimeMaterial);
+		}
+		Jelly->SetBodyScale(GetBodySize());
+	}
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
 	{
 		PC->SetCursorUnlocked(false);
@@ -255,13 +269,22 @@ void ASlimePawn::Tick(float DeltaSeconds)
 	AExpeditionDirector* Director = FindDirector();
 	while (FixedAccumulator >= RaisingSlimeUnits::FixedStep && Steps < RaisingSlimeUnits::MaxSubsteps)
 	{
+		const FVector VelBefore = Movement->GetPlanarVelocity() + FVector(0.f, 0.f, Movement->GetVerticalVelocity());
 		bool bConsumed = false;
 		Movement->StepFixed(RaisingSlimeUnits::FixedStep, this, Director, MoveInput, bMenu, bJumpQueued, bConsumed);
 		if (bConsumed)
 		{
 			bJumpQueued = false;
 		}
-		Jelly->Step(RaisingSlimeUnits::FixedStep);
+		const FVector VelAfter = Movement->GetPlanarVelocity() + FVector(0.f, 0.f, Movement->GetVerticalVelocity());
+		const FVector Accel = (VelAfter - VelBefore) / RaisingSlimeUnits::FixedStep;
+		const float ImpactMps = Movement->IsGrounded()
+			? FMath::Max(0.f, -VelBefore.Z * 0.01f)
+			: 0.f;
+		if (Jelly)
+		{
+			Jelly->Step(RaisingSlimeUnits::FixedStep, VelAfter, Accel, Movement->IsGrounded(), ImpactMps);
+		}
 		FixedAccumulator -= RaisingSlimeUnits::FixedStep;
 		++Steps;
 	}
@@ -604,6 +627,10 @@ void ASlimePawn::ApplyBodySize()
 	const float Size = GetBodySize();
 	Collision->SetSphereRadius(Size * 50.f);
 	BodyMesh->SetRelativeScale3D(FVector(Size));
+	if (Jelly)
+	{
+		Jelly->SetBodyScale(Size);
+	}
 	MainCamera->SetRelativeLocation(FVector(-Size * 255.f, 0.f, Size * 240.f));
 }
 
