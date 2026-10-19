@@ -4,9 +4,8 @@
 #include "GameFramework/HUD.h"
 #include "RaisingSlimeHud.generated.h"
 
-class AExpeditionDirector;
-class ASlimePawn;
-class ARaisingSlimePlayerController;
+class USlimeHudWidget;
+class UDigestMenuWidget;
 
 UCLASS()
 class RAISINGSLIME_API ARaisingSlimeHUD : public AHUD
@@ -16,16 +15,21 @@ class RAISINGSLIME_API ARaisingSlimeHUD : public AHUD
 public:
 	ARaisingSlimeHUD();
 
-	virtual void DrawHUD() override;
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	void OpenDigestMenu();
 	void CloseDigestMenu();
 	bool IsDigestMenuOpen() const { return bDigestOpen; }
 
 protected:
-	void DrawDigestPanel(AExpeditionDirector* Director, ARaisingSlimePlayerController* PC);
-	void DrawStatusBars(AExpeditionDirector* Director, ASlimePawn* Slime);
+	void EnsureHudWidget();
+
+	UPROPERTY()
+	TObjectPtr<USlimeHudWidget> HudWidget;
+
+	UPROPERTY()
+	TObjectPtr<UDigestMenuWidget> DigestWidget;
 
 	bool bDigestOpen = false;
-	int32 DigestHotIndex = -1;
 };
