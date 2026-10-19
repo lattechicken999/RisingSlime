@@ -35,8 +35,9 @@ struct FJellySettings
 	float NeighborStrength = 1.4f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float MaximumDeformationM = 0.5f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumStretch = 2.0f;
+	/** Hard cap on height scale vs rest (prevents taffy/hourglass). */
+	UPROPERTY(EditAnywhere, Category = "Jelly", meta = (ClampMin = "1.05", ClampMax = "1.5"))
+	float MaximumStretch = 1.22f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float MovementDeformation = 1.55f;
 	/** Scales residual spring K; keep low for languid ooze. */
@@ -46,6 +47,19 @@ struct FJellySettings
 	float SquashStrength = 1.7f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float StretchStrength = 1.35f;
+
+	/** Max +height while rising (fraction of rest). Mild blob, not spaghetti. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Jump", meta = (ClampMin = "0.05", ClampMax = "0.4"))
+	float JumpRiseStretch = 0.16f;
+	/** Max height loss while falling (fraction). */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Jump", meta = (ClampMin = "0.05", ClampMax = "0.4"))
+	float JumpFallSquash = 0.18f;
+	/** Brief flatten on takeoff impulse (fraction height loss). */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Jump", meta = (ClampMin = "0", ClampMax = "0.25"))
+	float JumpTakeoffFlatten = 0.1f;
+	/** |Vz| (m/s) that maps to full jump deform. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Jump")
+	float JumpDeformRefSpeedMps = 7.2f;
 
 	/** Contact / flow pressure — stick then ooze. */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
@@ -241,7 +255,7 @@ protected:
 	void ApplyEngulfWrap();
 	/** Displace verts from soft-volume particle field (primary collision paradigm). */
 	void ApplySoftVolumeSkin();
-	void BuildPose(const FVector& LocalVelocityCms);
+	void BuildPose(const FVector& LocalVelocityCms, const FVector& LocalAccelCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);
 	void ApplyVolumePreservation();
 	void ApplyInertia(const FVector& LocalAccelCms);
@@ -251,6 +265,8 @@ protected:
 
 	static float SmoothStep(float T);
 	float MaxDeformCm() const { return Settings.MaximumDeformationM * 100.f; }
+	/** Cap vertical offset so jump never needles the shell. */
+	float MaxVerticalStretchCm() const { return RestRadiusCm() * (Settings.MaximumStretch - 1.f); }
 	float RestRadiusCm() const { return 50.f; }
 
 	UPROPERTY()

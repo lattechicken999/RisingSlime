@@ -32,6 +32,7 @@ public:
 	bool StepMove(ASlimePawn* Pawn, const FVector& DesiredDelta, float Dt, bool& bOutGrounded);
 
 	int32 GetParticleCount() const { return Particles.Num(); }
+	int32 GetSupportedParticleCount() const;
 	FVector GetParticleWorldPos(int32 Index) const;
 	float GetParticleRadius(int32 Index) const;
 	FVector GetBodyCenterWorld() const;

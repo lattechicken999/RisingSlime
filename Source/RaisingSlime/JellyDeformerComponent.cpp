@@ -239,6 +239,7 @@ float UJellyDeformerComponent::SmoothStep(float T)
 void UJellyDeformerComponent::ClampPose()
 {
 	const float MaxD = MaxDeformCm();
+	const float MaxZ = MaxVerticalStretchCm();
 	for (int32 I = 0; I < Pose.Num(); ++I)
 	{
 		FVector Off = Pose[I] - Rest[I];
@@ -247,7 +248,7 @@ void UJellyDeformerComponent::ClampPose()
 		{
 			Horiz = Horiz.GetSafeNormal() * MaxD;
 		}
-		Off.Z = FMath::Clamp(Off.Z, -MaxD, MaxD);
+		Off.Z = FMath::Clamp(Off.Z, -MaxZ, MaxZ);
 		Pose[I] = Rest[I] + FVector(Horiz.X, Horiz.Y, Off.Z);
 	}
 }
@@ -255,6 +256,7 @@ void UJellyDeformerComponent::ClampPose()
 void UJellyDeformerComponent::ClampCurrentToRest()
 {
 	const float MaxD = MaxDeformCm();
+	const float MaxZ = MaxVerticalStretchCm();
 	for (int32 I = 0; I < Current.Num(); ++I)
 	{
 		FVector Off = Current[I] - Rest[I];
@@ -263,35 +265,50 @@ void UJellyDeformerComponent::ClampCurrentToRest()
 		{
 			Horiz = Horiz.GetSafeNormal() * MaxD;
 		}
-		Off.Z = FMath::Clamp(Off.Z, -MaxD, MaxD);
+		Off.Z = FMath::Clamp(Off.Z, -MaxZ, MaxZ);
 		Current[I] = Rest[I] + FVector(Horiz.X, Horiz.Y, Off.Z);
 	}
 }
 
-void UJellyDeformerComponent::BuildPose(const FVector& LocalVelocityCms)
+void UJellyDeformerComponent::BuildPose(const FVector& LocalVelocityCms, const FVector& LocalAccelCms)
 {
-	const FVector V = LocalVelocityCms * 0.01f; // cm/s ??m/s for formulas
-	const float Elongate = FMath::Min(FMath::Abs(V.Z) * Settings.StretchStrength * Settings.SquashStrength * 0.15f, 2.4f);
-	const float Pinch = Elongate * 0.45f;
+	const FVector V = LocalVelocityCms * 0.01f; // cm/s → m/s
+	const FVector A = LocalAccelCms * 0.01f;
+	const float Ref = FMath::Max(1.f, Settings.JumpDeformRefSpeedMps);
+	const float JumpT = SmoothStep(FMath::Clamp(FMath::Abs(V.Z) / Ref, 0.f, 1.f));
+
+	// Viscous liquid jump: mild height change + volume-conserving radius (never pinch through zero).
+	float VertMul = 1.f;
+	if (V.Z > 0.35f)
+	{
+		VertMul = 1.f + JumpT * Settings.JumpRiseStretch;
+		// Takeoff impulse: brief flatten before compact rise (not taffy launch).
+		if (A.Z > 8.f)
+		{
+			const float FlatT = SmoothStep(FMath::Clamp((A.Z - 8.f) / 25.f, 0.f, 1.f));
+			VertMul = FMath::Lerp(VertMul, 1.f - Settings.JumpTakeoffFlatten, FlatT);
+		}
+	}
+	else if (V.Z < -0.35f)
+	{
+		VertMul = 1.f - JumpT * Settings.JumpFallSquash;
+	}
+	VertMul = FMath::Clamp(VertMul, 1.f / Settings.MaximumStretch, Settings.MaximumStretch);
+	const float RadMul = FMath::Sqrt(1.f / FMath::Max(VertMul, 0.35f));
+
 	const float PlanarSpeed = FVector2D(V.X, V.Y).Size();
-	const float Trail = FMath::Min(PlanarSpeed * Settings.MovementDeformation * 0.12f, Settings.MaximumDeformationM);
+	const float Trail = FMath::Min(PlanarSpeed * Settings.MovementDeformation * 0.12f, Settings.MaximumDeformationM * 0.45f);
 	const FVector PlanarDir = FVector(V.X, V.Y, 0.f).GetSafeNormal();
-	const float MaxD = MaxDeformCm();
 
 	for (int32 I = 0; I < Rest.Num(); ++I)
 	{
-		const FVector R = Rest[I] * 0.01f; // cm ??m for offset math, then *100
-		FVector OffsetM(-R.X * Pinch, -R.Y * Pinch, R.Z * Elongate);
-		if (!PlanarDir.IsNearlyZero())
+		FVector P(Rest[I].X * RadMul, Rest[I].Y * RadMul, Rest[I].Z * VertMul);
+		if (!PlanarDir.IsNearlyZero() && Trail > KINDA_SMALL_NUMBER)
 		{
-			const float Face = FVector::DotProduct(R.GetSafeNormal(), PlanarDir);
-			OffsetM += PlanarDir * (Trail * Face);
+			const float Face = FVector::DotProduct(Rest[I].GetSafeNormal(), PlanarDir);
+			P += PlanarDir * (Trail * Face * 100.f);
 		}
-		if (OffsetM.Size() > Settings.MaximumDeformationM)
-		{
-			OffsetM = OffsetM.GetSafeNormal() * Settings.MaximumDeformationM;
-		}
-		Pose[I] = Rest[I] + OffsetM * 100.f;
+		Pose[I] = P;
 		Influence[I] = 0.f;
 	}
 	ClampPose();
@@ -564,11 +581,16 @@ void UJellyDeformerComponent::ApplySoftVolumeSkin()
 	}
 
 	const float InvScale = 1.f / FMath::Max(BodyScale, 0.2f);
+	// Airborne: damp soft-volume Z so particle lag can't stretch into a taffy strand.
+	// Grounded / partial settle keeps full macro drape.
+	const float AirZScale = (Soft->GetSupportedParticleCount() >= 2) ? 1.f : 0.2f;
 	TArray<FVector> SoftDisp;
 	SoftDisp.SetNumUninitialized(Pose.Num());
 	for (int32 I = 0; I < Pose.Num(); ++I)
 	{
-		SoftDisp[I] = Soft->SampleDisplacementLocal(Rest[I] * BodyScale) * InvScale;
+		FVector D = Soft->SampleDisplacementLocal(Rest[I] * BodyScale) * InvScale;
+		D.Z *= AirZScale;
+		SoftDisp[I] = D;
 	}
 
 	// Laplacian on XY only — Z is the macro drape and must not be flattened.
@@ -1025,7 +1047,7 @@ void UJellyDeformerComponent::ApplyVolumePreservation()
 		}
 		const float MaxVertCm = Settings.MaxVerticalCompressionM * 100.f;
 		const float ZOff = Want.Z - Rest[I].Z;
-		Want.Z = Rest[I].Z + FMath::Clamp(ZOff, -MaxVertCm, MaxDeformCm());
+		Want.Z = Rest[I].Z + FMath::Clamp(ZOff, -MaxVertCm, MaxVerticalStretchCm());
 		Pose[I] = Want;
 	}
 	ClampPose();
@@ -1153,7 +1175,7 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	UpdateSmoothedContacts(Dt);
 	UpdateSmoothedEngulfs(Dt, StepUpCm);
 
-	BuildPose(LocalVel);
+	BuildPose(LocalVel, LocalAcc);
 	ApplyDirectionalFlow(SmoothedFlowDir, SmoothedFlowAmount, StepUpCm);
 	ApplySmoothedContacts();
 	ApplyEngulfWrap();
@@ -1163,6 +1185,8 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	StepSprings(Dt);
 	// Soft-volume drape after springs so particle support heights win the silhouette.
 	ApplySoftVolumeSkin();
+	// Re-clamp after soft skin so airborne particle lag can't needle the shell.
+	ClampCurrentToRest();
 	WriteMesh();
 
 	PrevWorldVelocityCms = WorldVelocityCms;

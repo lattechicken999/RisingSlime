@@ -181,6 +181,19 @@ void USlimeSoftVolumeComponent::TeleportWithActor()
 	ResetToActor();
 }
 
+int32 USlimeSoftVolumeComponent::GetSupportedParticleCount() const
+{
+	int32 N = 0;
+	for (const FParticle& P : Particles)
+	{
+		if (P.bHasSupport)
+		{
+			++N;
+		}
+	}
+	return N;
+}
+
 FVector USlimeSoftVolumeComponent::GetParticleWorldPos(int32 Index) const
 {
 	return Particles.IsValidIndex(Index) ? Particles[Index].WorldPos : FVector::ZeroVector;
