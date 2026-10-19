@@ -72,7 +72,9 @@ void ASlimePawn::BeginPlay()
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
 	{
 		PC->SetCursorUnlocked(false);
+		PC->EnsureRuntimeInput();
 	}
+	BindEnhancedInput();
 }
 
 void ASlimePawn::PossessedBy(AController* NewController)
@@ -82,28 +84,50 @@ void ASlimePawn::PossessedBy(AController* NewController)
 	{
 		Director->RegisterSlime(this);
 	}
+	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(NewController))
+	{
+		PC->EnsureRuntimeInput();
+	}
+	// InputComponent may not exist yet; SetupPlayerInputComponent / PC callbacks will retry.
+	BindEnhancedInput();
 }
 
 void ASlimePawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
+	{
+		PC->EnsureRuntimeInput();
+	}
 	BindEnhancedInput();
 }
 
 void ASlimePawn::BindEnhancedInput()
 {
-	ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController());
-	UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(InputComponent);
-	if (!PC || !EIC)
+	if (bEnhancedInputBound)
 	{
 		return;
 	}
 
-	if (PC->GetMoveAction())
+	ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController());
+	UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(InputComponent);
+	if (!PC || !EIC)
 	{
-		EIC->BindAction(PC->GetMoveAction(), ETriggerEvent::Triggered, this, &ASlimePawn::OnMove);
-		EIC->BindAction(PC->GetMoveAction(), ETriggerEvent::Completed, this, &ASlimePawn::OnMove);
+		UE_LOG(LogTemp, Warning, TEXT("SlimePawn: BindEnhancedInput deferred (PC=%d EIC=%d)"),
+			PC != nullptr, EIC != nullptr);
+		return;
 	}
+
+	PC->EnsureRuntimeInput();
+	if (!PC->GetMoveAction())
+	{
+		UE_LOG(LogTemp, Error, TEXT("SlimePawn: MoveAction null after EnsureRuntimeInput — WASD will not work"));
+		return;
+	}
+
+	EIC->BindAction(PC->GetMoveAction(), ETriggerEvent::Triggered, this, &ASlimePawn::OnMove);
+	EIC->BindAction(PC->GetMoveAction(), ETriggerEvent::Completed, this, &ASlimePawn::OnMove);
+
 	if (PC->GetLookAction())
 	{
 		EIC->BindAction(PC->GetLookAction(), ETriggerEvent::Triggered, this, &ASlimePawn::OnLook);
@@ -136,6 +160,9 @@ void ASlimePawn::BindEnhancedInput()
 	{
 		EIC->BindAction(PC->GetFocusAction(), ETriggerEvent::Started, this, &ASlimePawn::OnFocus);
 	}
+
+	bEnhancedInputBound = true;
+	UE_LOG(LogTemp, Log, TEXT("SlimePawn: Enhanced Input bound (Move/Jump/Attack/...)"));
 }
 
 void ASlimePawn::Tick(float DeltaSeconds)

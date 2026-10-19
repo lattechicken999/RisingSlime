@@ -17,12 +17,17 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
+	virtual void OnPossess(APawn* InPawn) override;
+	virtual void AcknowledgePossession(APawn* P) override;
 
 	void SetMenuOpen(bool bOpen);
 	bool IsMenuOpen() const { return bMenuOpen; }
 	void SetCursorUnlocked(bool bUnlocked);
 	bool IsCursorUnlocked() const { return bCursorUnlocked; }
 	bool IsGameplayLocked() const { return bMenuOpen || bCursorUnlocked; }
+
+	/** Build IMC/actions if needed and add mapping context when LocalPlayer exists. */
+	void EnsureRuntimeInput();
 
 	UInputMappingContext* GetMappingContext() const { return MappingContext; }
 	UInputAction* GetMoveAction() const { return MoveAction; }
@@ -37,7 +42,9 @@ public:
 
 protected:
 	void BuildRuntimeInput();
+	void ApplyMappingContext();
 	void ApplyCursorState();
+	void NotifyPossessedPawnToBindInput();
 
 	UPROPERTY()
 	TObjectPtr<UInputMappingContext> MappingContext;

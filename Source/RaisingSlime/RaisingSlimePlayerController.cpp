@@ -1,4 +1,5 @@
 #include "RaisingSlimePlayerController.h"
+#include "SlimePawn.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
@@ -7,30 +8,75 @@
 ARaisingSlimePlayerController::ARaisingSlimePlayerController()
 {
 	bShowMouseCursor = false;
+	// Actions/IMC must exist before pawn SetupPlayerInputComponent (runs during Possess,
+	// typically before this controller's BeginPlay).
+	BuildRuntimeInput();
 }
 
 void ARaisingSlimePlayerController::BeginPlay()
 {
 	Super::BeginPlay();
-	BuildRuntimeInput();
-
-	if (ULocalPlayer* LP = GetLocalPlayer())
-	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
-		{
-			if (MappingContext)
-			{
-				Subsystem->AddMappingContext(MappingContext, 0);
-			}
-		}
-	}
-
+	EnsureRuntimeInput();
 	ApplyCursorState();
+	NotifyPossessedPawnToBindInput();
 }
 
 void ARaisingSlimePlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
+	EnsureRuntimeInput();
+}
+
+void ARaisingSlimePlayerController::OnPossess(APawn* InPawn)
+{
+	Super::OnPossess(InPawn);
+	EnsureRuntimeInput();
+	NotifyPossessedPawnToBindInput();
+}
+
+void ARaisingSlimePlayerController::AcknowledgePossession(APawn* P)
+{
+	Super::AcknowledgePossession(P);
+	EnsureRuntimeInput();
+	NotifyPossessedPawnToBindInput();
+}
+
+void ARaisingSlimePlayerController::EnsureRuntimeInput()
+{
+	BuildRuntimeInput();
+	ApplyMappingContext();
+}
+
+void ARaisingSlimePlayerController::ApplyMappingContext()
+{
+	if (!MappingContext)
+	{
+		return;
+	}
+
+	if (ULocalPlayer* LP = GetLocalPlayer())
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+		{
+			if (!Subsystem->HasMappingContext(MappingContext))
+			{
+				Subsystem->AddMappingContext(MappingContext, 0);
+				UE_LOG(LogTemp, Log, TEXT("RaisingSlimePC: IMC_Slime_Runtime added"));
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("RaisingSlimePC: EnhancedInputLocalPlayerSubsystem missing"));
+		}
+	}
+}
+
+void ARaisingSlimePlayerController::NotifyPossessedPawnToBindInput()
+{
+	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetPawn()))
+	{
+		SoftSlime->BindEnhancedInput();
+	}
 }
 
 void ARaisingSlimePlayerController::SetMenuOpen(bool bOpen)
@@ -120,4 +166,6 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 	MappingContext->MapKey(DigestAction, EKeys::E);
 	MappingContext->MapKey(CursorAction, EKeys::Escape);
 	MappingContext->MapKey(FocusAction, EKeys::LeftMouseButton);
+
+	UE_LOG(LogTemp, Log, TEXT("RaisingSlimePC: runtime IMC/actions built"));
 }

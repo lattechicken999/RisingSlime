@@ -60,8 +60,10 @@ public:
 
 	float GetBodySize() const;
 
-protected:
+	/** Bind Enhanced Input actions from the player controller. Safe to call multiple times. */
 	void BindEnhancedInput();
+
+protected:
 	void OnMove(const struct FInputActionValue& Value);
 	void OnLook(const struct FInputActionValue& Value);
 	void OnJumpStarted(const struct FInputActionValue& Value);
@@ -112,6 +114,7 @@ protected:
 	float HardenUntil = 0.f;
 	float HardenCooldown = 0.f;
 	bool bJumpQueued = false;
+	bool bEnhancedInputBound = false;
 
 	FVector2D MoveInput = FVector2D::ZeroVector;
 
