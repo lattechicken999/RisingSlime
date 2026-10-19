@@ -49,21 +49,23 @@ public:
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
 	bool bDebugDraw = false;
 
-	/** Extra Z scale on skinned displacement so the shell matches particle climb. */
-	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.5", ClampMax = "2.5"))
-	float SkinVerticalBoost = 1.4f;
+	/** Z scale on skinned drape (≈1 = match particles; >1 causes lumps). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.5", ClampMax = "2.0"))
+	float SkinVerticalBoost = 1.05f;
 
-	/** IDW power (higher = sharper local drape). */
-	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "1", ClampMax = "4"))
-	float SkinFalloffPower = 2.6f;
-
-	/** 0 = 3D distance, 1 = XY-only distance for weights. */
+	/** How much particle XY poke transfers to the shell (keep low — avoids ridged dents). */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0", ClampMax = "1"))
-	float SkinPlanarBias = 0.75f;
+	float SkinLateralScale = 0.22f;
 
-	/** Prefer particles on the same side of the body as the vertex (shell follow). */
+	/**
+	 * Gaussian sigma as a fraction of body radius (wider = smoother macro slope, fewer micro lumps).
+	 */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.25", ClampMax = "1.2"))
+	float SkinSigmaScale = 0.62f;
+
+	/** 0 = 3D distance, 1 = XY-only (better for support-height drape). */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0", ClampMax = "1"))
-	float SkinAlignWeight = 0.6f;
+	float SkinPlanarBias = 0.85f;
 
 	/** Viscous pull toward formation XY (1/s). High = thick goo. */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity")

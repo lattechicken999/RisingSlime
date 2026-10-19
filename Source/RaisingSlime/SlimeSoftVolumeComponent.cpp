@@ -387,11 +387,12 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	// Rest frame = actor body center so half-on-rock Z drape is visible on the shell.
 	const FVector Center = BodyCenterFromActor(Owner);
 
-	const float Power = FMath::Clamp(SkinFalloffPower, 1.f, 4.f);
+	// Wide Gaussian support-height field: macro slope without per-particle poke lumps.
 	const float PlanarBias = FMath::Clamp(SkinPlanarBias, 0.f, 1.f);
-	const float AlignW = FMath::Clamp(SkinAlignWeight, 0.f, 1.f);
-	const float VertBoost = FMath::Clamp(SkinVerticalBoost, 0.5f, 2.5f);
-	const FVector VertDir = MeshLocalPoint.GetSafeNormal();
+	const float VertBoost = FMath::Clamp(SkinVerticalBoost, 0.5f, 2.f);
+	const float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
+	const float Sigma = FMath::Max(18.f, BodyRadiusCm * FMath::Clamp(SkinSigmaScale, 0.25f, 1.2f));
+	const float InvTwoSig2 = 1.f / (2.f * Sigma * Sigma);
 
 	FVector Acc = FVector::ZeroVector;
 	float WSum = 0.f;
@@ -400,33 +401,14 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 		const FVector RestLocalCentered = P.RestLocal - RestComLocal;
 		const FVector RestWorld = Center + YawQ.RotateVector(RestLocalCentered);
 		FVector DispLocal = InvYaw.RotateVector(P.WorldPos - RestWorld);
+		DispLocal.X *= LatScale;
+		DispLocal.Y *= LatScale;
 		DispLocal.Z *= VertBoost;
 
 		const float Dist3 = FVector::Dist(MeshLocalPoint, RestLocalCentered);
 		const float DistXY = FVector::Dist2D(MeshLocalPoint, RestLocalCentered);
 		const float Dist = FMath::Lerp(Dist3, DistXY, PlanarBias);
-		const float SoftR = FMath::Max(6.f, P.Radius * 0.85f);
-		const float WDist = 1.f / (0.001f + FMath::Pow(Dist / SoftR, Power));
-
-		float Align = 1.f;
-		if (AlignW > KINDA_SMALL_NUMBER && !VertDir.IsNearlyZero() && RestLocalCentered.SizeSquared() > 1.f)
-		{
-			Align = 0.25f + 0.75f * FMath::Max(0.f, FVector::DotProduct(VertDir, RestLocalCentered.GetSafeNormal()));
-			Align = FMath::Lerp(1.f, Align, AlignW);
-		}
-
-		// Underside verts lean on lower particles (support height carriers).
-		float HeightMatch = 1.f;
-		if (MeshLocalPoint.Z < 0.f && RestLocalCentered.Z < 0.f)
-		{
-			HeightMatch = 1.35f;
-		}
-		else if (MeshLocalPoint.Z > 0.f && RestLocalCentered.Z > BodyRadiusCm * 0.1f)
-		{
-			HeightMatch = 1.15f;
-		}
-
-		const float W = WDist * Align * HeightMatch;
+		const float W = FMath::Exp(-(Dist * Dist) * InvTwoSig2);
 		Acc += DispLocal * W;
 		WSum += W;
 	}

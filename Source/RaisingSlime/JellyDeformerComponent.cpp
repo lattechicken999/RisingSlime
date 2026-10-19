@@ -564,19 +564,48 @@ void UJellyDeformerComponent::ApplySoftVolumeSkin()
 	}
 
 	const float InvScale = 1.f / FMath::Max(BodyScale, 0.2f);
+	TArray<FVector> SoftDisp;
+	SoftDisp.SetNumUninitialized(Pose.Num());
 	for (int32 I = 0; I < Pose.Num(); ++I)
 	{
-		// Soft volume rest is world-cm (scaled); mesh Rest is pre-scale.
-		const FVector Disp = Soft->SampleDisplacementLocal(Rest[I] * BodyScale) * InvScale;
-		Pose[I] += Disp;
+		SoftDisp[I] = Soft->SampleDisplacementLocal(Rest[I] * BodyScale) * InvScale;
+	}
 
-		// Bake drape into Current this frame — especially Z — so the M_Slime shell
-		// matches particle support heights (not a rigid ball lagging behind springs).
+	// One Laplacian pass on displacement — kills micro ridges, keeps macro slope.
+	if (Edges.Num() > 0)
+	{
+		TArray<FVector> SmoothDisp;
+		SmoothDisp.SetNumUninitialized(SoftDisp.Num());
+		TArray<float> WSum;
+		WSum.Init(1.f, SoftDisp.Num());
+		for (int32 I = 0; I < SoftDisp.Num(); ++I)
+		{
+			SmoothDisp[I] = SoftDisp[I];
+		}
+		for (const FEdge& E : Edges)
+		{
+			SmoothDisp[E.A] += SoftDisp[E.B];
+			SmoothDisp[E.B] += SoftDisp[E.A];
+			WSum[E.A] += 1.f;
+			WSum[E.B] += 1.f;
+		}
+		constexpr float LapBlend = 0.55f;
+		for (int32 I = 0; I < SoftDisp.Num(); ++I)
+		{
+			const FVector Avg = SmoothDisp[I] / WSum[I];
+			SoftDisp[I] = FMath::Lerp(SoftDisp[I], Avg, LapBlend);
+		}
+	}
+
+	for (int32 I = 0; I < Pose.Num(); ++I)
+	{
+		Pose[I] += SoftDisp[I];
 		if (Current.IsValidIndex(I))
 		{
-			Current[I].Z = Pose[I].Z;
-			Current[I].X = FMath::Lerp(Current[I].X, Pose[I].X, 0.7f);
-			Current[I].Y = FMath::Lerp(Current[I].Y, Pose[I].Y, 0.7f);
+			// Soft bake: Z follows drape, XY stays viscous (no hard poke lock).
+			Current[I].Z = FMath::Lerp(Current[I].Z, Pose[I].Z, 0.85f);
+			Current[I].X = FMath::Lerp(Current[I].X, Pose[I].X, 0.45f);
+			Current[I].Y = FMath::Lerp(Current[I].Y, Pose[I].Y, 0.45f);
 		}
 	}
 }
