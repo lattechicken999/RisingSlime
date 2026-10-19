@@ -415,25 +415,23 @@ void UJellyDeformerComponent::GatherEngulfObstacles()
 	}
 
 	const float WorldRadiusCm = RestRadiusCm() * BodyScale;
-	const float MaxEngulfH = WorldRadiusCm * Settings.EngulfMaxHeightFraction;
+	const float WorldDiameterCm = WorldRadiusCm * 2.f;
+	// Prey_Rock ≈55–70cm tall; must compare to diameter (~100cm), not radius (~50cm).
+	const float MaxEngulfH = WorldDiameterCm * Settings.EngulfMaxHeightFractionOfDiameter;
 	const FVector Center = Mesh->GetComponentLocation();
 	const float FeetZ = Center.Z - WorldRadiusCm;
 	const FTransform MeshXf = Mesh->GetComponentTransform();
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(JellyEngulf), false, GetOwner());
-	FCollisionObjectQueryParams ObjQuery;
-	ObjQuery.AddObjectTypesToQuery(ECC_WorldStatic);
-	ObjQuery.AddObjectTypesToQuery(ECC_WorldDynamic);
-	ObjQuery.AddObjectTypesToQuery(ECC_PhysicsBody);
+	Params.bTraceComplex = false;
 
-	const float ProbeSphere = FMath::Clamp(WorldRadiusCm * 0.12f, 4.f, 12.f);
-	const float DownReach = WorldRadiusCm * 1.05f;
+	const float ProbeSphere = FMath::Clamp(WorldRadiusCm * 0.14f, 5.f, 14.f);
 
 	TArray<FVector> Offsets;
 	Offsets.Add(FVector::ZeroVector);
 	for (int32 Ring = 1; Ring <= 2; ++Ring)
 	{
-		const float R = WorldRadiusCm * (0.28f * Ring);
+		const float R = WorldRadiusCm * (0.32f * Ring);
 		const int32 Segs = Ring == 1 ? 6 : 8;
 		for (int32 I = 0; I < Segs; ++I)
 		{
@@ -442,46 +440,34 @@ void UJellyDeformerComponent::GatherEngulfObstacles()
 		}
 	}
 
-	for (const FVector& Off : Offsets)
+	auto TryAcceptHit = [&](const FHitResult& Hit) -> bool
 	{
-		if (PendingEngulfs.Num() >= MaxEngulfsPerStep)
+		if ((!Hit.bBlockingHit && !Hit.bStartPenetrating) || !Hit.GetActor() || Hit.GetActor() == GetOwner())
 		{
-			break;
+			return false;
 		}
-		const FVector Start = Center + Off;
-		FHitResult Hit;
-		if (!GetWorld()->SweepSingleByObjectType(
-			Hit, Start, Start - FVector(0.f, 0.f, DownReach), FQuat::Identity, ObjQuery,
-			FCollisionShape::MakeSphere(ProbeSphere), Params))
+		// Skip near-vertical walls — face squash handles those.
+		if (Hit.ImpactNormal.Z < 0.25f)
 		{
-			continue;
-		}
-		if ((!Hit.bBlockingHit && !Hit.bStartPenetrating) || Hit.GetActor() == GetOwner())
-		{
-			continue;
-		}
-		// Need a support-ish surface (top of rock/box), not a tall vertical wall.
-		if (Hit.ImpactNormal.Z < 0.35f)
-		{
-			continue;
+			return false;
 		}
 
 		const float HeightAboveFeet = Hit.ImpactPoint.Z - FeetZ;
+		// Flat floor ≈ 0; reject. Tall walls / buildings exceed MaxEngulfH.
 		if (HeightAboveFeet < Settings.EngulfMinHeightCm || HeightAboveFeet > MaxEngulfH)
 		{
-			continue;
+			return false;
 		}
 
 		const FVector LocalTop = MeshXf.InverseTransformPosition(Hit.ImpactPoint);
-		// Must sit under / in lower hemisphere to read as swallowed underneath.
-		if (LocalTop.Z > RestRadiusCm() * 0.15f)
+		// Allow mid-body intrusion (Hunt rocks poke above mesh equator). Only skip ceiling-ish.
+		if (LocalTop.Z > RestRadiusCm() * 0.85f)
 		{
-			continue;
+			return false;
 		}
 
-		// Merge with nearby pending site.
 		int32 Best = INDEX_NONE;
-		float BestDist = 18.f;
+		float BestDist = 22.f;
 		for (int32 I = 0; I < PendingEngulfs.Num(); ++I)
 		{
 			const float D = FVector::Dist2D(PendingEngulfs[I].LocalTop, LocalTop);
@@ -491,25 +477,77 @@ void UJellyDeformerComponent::GatherEngulfObstacles()
 				Best = I;
 			}
 		}
-		const float InflR = WorldRadiusCm * Settings.EngulfInfluenceRadiusScale / FMath::Max(BodyScale, 0.2f);
-		const float Strength = SmoothStep(1.f - HeightAboveFeet / MaxEngulfH);
+
+		const float InflR = (WorldRadiusCm * Settings.EngulfInfluenceRadiusScale) / FMath::Max(BodyScale, 0.2f);
+		const float Strength = FMath::Clamp(SmoothStep(1.f - HeightAboveFeet / MaxEngulfH) + 0.35f, 0.35f, 1.f);
+		const float HeightLocal = HeightAboveFeet / FMath::Max(BodyScale, 0.2f);
+
 		if (Best == INDEX_NONE)
 		{
+			if (PendingEngulfs.Num() >= MaxEngulfsPerStep)
+			{
+				return false;
+			}
 			FEngulfSite E;
 			E.LocalTop = LocalTop;
-			E.HeightCm = HeightAboveFeet / FMath::Max(BodyScale, 0.2f);
+			E.HeightCm = HeightLocal;
 			E.RadiusCm = InflR;
 			E.TargetStrength = Strength;
-			E.Strength = Strength * 0.4f;
+			E.Strength = Strength;
 			PendingEngulfs.Add(E);
 		}
 		else
 		{
 			FEngulfSite& E = PendingEngulfs[Best];
-			E.LocalTop = FMath::Lerp(E.LocalTop, LocalTop, 0.4f);
-			E.HeightCm = FMath::Max(E.HeightCm, HeightAboveFeet / FMath::Max(BodyScale, 0.2f));
+			E.LocalTop = FMath::Lerp(E.LocalTop, LocalTop, 0.5f);
+			E.HeightCm = FMath::Max(E.HeightCm, HeightLocal);
 			E.RadiusCm = FMath::Max(E.RadiusCm, InflR);
 			E.TargetStrength = FMath::Max(E.TargetStrength, Strength);
+			E.Strength = FMath::Max(E.Strength, Strength * 0.85f);
+		}
+
+		if (Settings.bEngulfDebugLog)
+		{
+			static float LastLogTime = -100.f;
+			const float Now = GetWorld()->GetTimeSeconds();
+			if (Now - LastLogTime > 0.4f)
+			{
+				LastLogTime = Now;
+				UE_LOG(LogTemp, Display,
+					TEXT("JellyEngulf: hit=%s hAboveFeet=%.1fcm (max=%.1f) localZ=%.1f wrapH=%.1f"),
+					*Hit.GetActor()->GetName(), HeightAboveFeet, MaxEngulfH, LocalTop.Z, HeightLocal);
+			}
+		}
+		return true;
+	};
+
+	for (const FVector& Off : Offsets)
+	{
+		if (PendingEngulfs.Num() >= MaxEngulfsPerStep)
+		{
+			break;
+		}
+
+		// Trace through the full body column — rock tops often sit ABOVE mesh center on Hunt.
+		const FVector Start = Center + Off + FVector(0.f, 0.f, WorldRadiusCm * 0.35f);
+		const FVector End = Center + Off - FVector(0.f, 0.f, WorldRadiusCm * 1.15f);
+
+		FHitResult HitDyn;
+		FHitResult HitStat;
+		const bool bDyn = GetWorld()->SweepSingleByChannel(
+			HitDyn, Start, End, FQuat::Identity, ECC_WorldDynamic,
+			FCollisionShape::MakeSphere(ProbeSphere), Params);
+		const bool bStat = GetWorld()->SweepSingleByChannel(
+			HitStat, Start, End, FQuat::Identity, ECC_WorldStatic,
+			FCollisionShape::MakeSphere(ProbeSphere), Params);
+
+		if (bDyn)
+		{
+			TryAcceptHit(HitDyn);
+		}
+		if (bStat)
+		{
+			TryAcceptHit(HitStat);
 		}
 	}
 }
@@ -519,7 +557,7 @@ void UJellyDeformerComponent::UpdateSmoothedEngulfs(float Dt, float StepUpCm)
 	for (const FEngulfSite& P : PendingEngulfs)
 	{
 		int32 Best = INDEX_NONE;
-		float BestDist = 22.f;
+		float BestDist = 28.f;
 		for (int32 I = 0; I < SmoothedEngulfs.Num(); ++I)
 		{
 			const float D = FVector::Dist2D(SmoothedEngulfs[I].LocalTop, P.LocalTop);
@@ -529,7 +567,7 @@ void UJellyDeformerComponent::UpdateSmoothedEngulfs(float Dt, float StepUpCm)
 				Best = I;
 			}
 		}
-		float Boost = 1.f + FMath::Clamp(StepUpCm / 40.f, 0.f, 1.f) * Settings.EngulfStepUpBoost;
+		const float Boost = 1.f + FMath::Clamp(StepUpCm / 28.f, 0.f, 1.f) * Settings.EngulfStepUpBoost;
 		if (Best == INDEX_NONE)
 		{
 			if (SmoothedEngulfs.Num() >= MaxEngulfsPerStep)
@@ -538,22 +576,23 @@ void UJellyDeformerComponent::UpdateSmoothedEngulfs(float Dt, float StepUpCm)
 			}
 			FEngulfSite S = P;
 			S.TargetStrength = FMath::Clamp(P.TargetStrength * Boost, 0.f, 1.f);
-			S.Strength = S.TargetStrength * 0.35f;
+			S.Strength = S.TargetStrength; // snap on — no long fade-in that hides the effect
 			S.Age = 0.f;
 			SmoothedEngulfs.Add(S);
 		}
 		else
 		{
 			FEngulfSite& S = SmoothedEngulfs[Best];
-			S.LocalTop = FMath::Lerp(S.LocalTop, P.LocalTop, 0.4f);
+			S.LocalTop = FMath::Lerp(S.LocalTop, P.LocalTop, 0.55f);
 			S.HeightCm = FMath::Max(S.HeightCm, P.HeightCm);
-			S.RadiusCm = FMath::Lerp(S.RadiusCm, P.RadiusCm, 0.35f);
+			S.RadiusCm = FMath::Lerp(S.RadiusCm, P.RadiusCm, 0.45f);
 			S.TargetStrength = FMath::Clamp(P.TargetStrength * Boost, 0.f, 1.f);
+			S.Strength = FMath::Max(S.Strength, S.TargetStrength * 0.9f);
 			S.Age = 0.f;
 		}
 	}
 
-	const float Alpha = 1.f - FMath::Exp(-FMath::Max(0.5f, Settings.EngulfSmoothRate) * Dt);
+	const float Alpha = 1.f - FMath::Exp(-FMath::Max(1.f, Settings.EngulfSmoothRate) * Dt);
 	for (int32 I = SmoothedEngulfs.Num() - 1; I >= 0; --I)
 	{
 		FEngulfSite& S = SmoothedEngulfs[I];
@@ -563,7 +602,7 @@ void UJellyDeformerComponent::UpdateSmoothedEngulfs(float Dt, float StepUpCm)
 			S.TargetStrength = FMath::Lerp(S.TargetStrength, 0.f, Alpha);
 		}
 		S.Strength = FMath::Lerp(S.Strength, S.TargetStrength, Alpha);
-		if (S.Strength < 0.04f && S.TargetStrength < 0.04f && S.Age > 0.15f)
+		if (S.Strength < 0.03f && S.TargetStrength < 0.03f && S.Age > 0.12f)
 		{
 			SmoothedEngulfs.RemoveAtSwap(I);
 		}
@@ -579,17 +618,19 @@ void UJellyDeformerComponent::ApplyEngulfWrap()
 
 	for (const FEngulfSite& E : SmoothedEngulfs)
 	{
-		if (E.Strength < 0.03f || E.RadiusCm < 1.f)
+		if (E.Strength < 0.02f || E.RadiusCm < 1.f)
 		{
 			continue;
 		}
-		const float WrapCm = E.HeightCm * Settings.EngulfWrapStrength * E.Strength;
+		// Obvious cavity: at least EngulfMinWrapCm, scales with obstacle height.
+		const float WrapCm = FMath::Max(Settings.EngulfMinWrapCm, E.HeightCm * Settings.EngulfWrapStrength) * E.Strength;
 		const FVector2D TopXY(E.LocalTop.X, E.LocalTop.Y);
+		const float TopZ = E.LocalTop.Z;
 
 		for (int32 I = 0; I < Rest.Num(); ++I)
 		{
-			// Lower / mid-lower hemisphere wraps around the buried obstacle.
-			if (Rest[I].Z > RestRadiusCm() * 0.25f)
+			// Wrap lower + mid band (rocks poke through equator on Hunt).
+			if (Rest[I].Z > RestRadiusCm() * 0.55f)
 			{
 				continue;
 			}
@@ -601,42 +642,37 @@ void UJellyDeformerComponent::ApplyEngulfWrap()
 			}
 			const float T = 1.f - Dist / E.RadiusCm;
 			float Inf = SmoothStep(T);
-			// Stronger wrap on the underside.
-			const float Under = SmoothStep(FMath::Clamp((-Rest[I].Z) / (RestRadiusCm() * 0.92f), 0.f, 1.f));
-			Inf *= FMath::Lerp(0.35f, 1.f, Under);
+			const float Under = SmoothStep(FMath::Clamp(
+				(RestRadiusCm() * 0.55f - Rest[I].Z) / (RestRadiusCm() * 1.1f), 0.f, 1.f));
+			Inf *= FMath::Lerp(0.45f, 1.f, Under);
 			if (Inf < 0.001f)
 			{
 				continue;
 			}
 
-			// Cave: lift verts that sit below the obstacle top → cavity above the rock.
-			const float BelowTop = FMath::Max(0.f, E.LocalTop.Z + WrapCm * 0.15f - Rest[I].Z);
-			const float Cave = FMath::Min(BelowTop, WrapCm) * Inf;
+			// Force verts above the obstacle top — cavity so the rock sits under the goo.
+			const float TargetZ = TopZ + WrapCm * 0.55f;
+			const float Lift = FMath::Max(0.f, TargetZ - Rest[I].Z) * Inf;
+			const float Cave = FMath::Min(Lift, WrapCm) ;
 			Pose[I].Z += Cave;
 
-			// Lateral ooze around the obstacle so mass covers sides.
 			FVector2D Away = RXY - TopXY;
-			if (Away.SizeSquared() < KINDA_SMALL_NUMBER)
-			{
-				Away = RXY.GetSafeNormal() * 0.01f;
-			}
-			else
-			{
-				Away = Away.GetSafeNormal();
-			}
+			Away = Away.SizeSquared() < KINDA_SMALL_NUMBER ? RXY.GetSafeNormal() : Away.GetSafeNormal();
 			const float Ooze = Cave * Settings.EngulfLateralOoze;
 			Pose[I].X += Away.X * Ooze;
 			Pose[I].Y += Away.Y * Ooze;
-			// Slight drip down outside the rock rim.
-			if (Dist > E.RadiusCm * 0.45f)
+			if (Dist > E.RadiusCm * 0.4f)
 			{
-				Pose[I].Z -= Ooze * 0.25f * Inf;
+				Pose[I].Z -= Ooze * 0.2f * Inf;
 			}
 
 			Influence[I] = FMath::Max(Influence[I], Inf * E.Strength);
+			// Bypass slow viscosity creep so wrap is immediately readable on Prey_Rock.
+			Current[I] = FMath::Lerp(Current[I], Pose[I], 0.72f);
 		}
 	}
 	ClampPose();
+	ClampCurrentToRest();
 }
 
 void UJellyDeformerComponent::UpdateSmoothedContacts(float Dt)

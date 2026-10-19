@@ -73,25 +73,30 @@ struct FJellySettings
 	float IntoSpeedScale = 0.01f;
 
 	/**
-	 * Underside engulf: obstacles shorter than this × body radius get wrapped under the mass
-	 * (cavity + lateral ooze). Tall walls stay face-squash only.
+	 * Underside engulf: obstacle height above feet must be < this × body *diameter*
+	 * (Hunt Prey_Rock ≈55–70cm; diameter≈100cm → 0.9 works). Walls stay face-squash.
 	 */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
 	bool bUndersideEngulf = true;
-	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf", meta = (ClampMin = "0.2", ClampMax = "1.0"))
-	float EngulfMaxHeightFraction = 0.85f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf", meta = (ClampMin = "0.3", ClampMax = "1.2"))
+	float EngulfMaxHeightFractionOfDiameter = 0.95f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
-	float EngulfMinHeightCm = 4.f;
+	float EngulfMinHeightCm = 3.f;
+	/** Minimum cavity lift (cm) so wrap is visible even on short bumps. */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
-	float EngulfWrapStrength = 1.15f;
+	float EngulfMinWrapCm = 14.f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
-	float EngulfLateralOoze = 0.7f;
+	float EngulfWrapStrength = 1.85f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
-	float EngulfInfluenceRadiusScale = 0.7f;
+	float EngulfLateralOoze = 1.05f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
-	float EngulfSmoothRate = 4.f;
+	float EngulfInfluenceRadiusScale = 0.95f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
-	float EngulfStepUpBoost = 0.45f;
+	float EngulfSmoothRate = 8.f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	float EngulfStepUpBoost = 0.75f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	bool bEngulfDebugLog = true;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float MaxImpactDeformationM = 0.2f;
