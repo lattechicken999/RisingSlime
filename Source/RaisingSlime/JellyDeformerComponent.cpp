@@ -1,4 +1,6 @@
 #include "JellyDeformerComponent.h"
+#include "SlimePawn.h"
+#include "SlimeSoftVolumeComponent.h"
 #include "RaisingSlimeTypes.h"
 #include "Materials/MaterialInterface.h"
 #include "Async/ParallelFor.h"
@@ -552,6 +554,25 @@ void UJellyDeformerComponent::GatherEngulfObstacles()
 	}
 }
 
+void UJellyDeformerComponent::ApplySoftVolumeSkin()
+{
+	const ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner());
+	const USlimeSoftVolumeComponent* Soft = Pawn ? Pawn->GetSoftVolume() : nullptr;
+	if (!Soft || !Soft->bEnabled || Soft->GetParticleCount() == 0 || Pose.Num() == 0)
+	{
+		return;
+	}
+
+	for (int32 I = 0; I < Pose.Num(); ++I)
+	{
+		// Soft volume rest is in world-cm (scaled radius); mesh Rest is pre-scale.
+		const FVector SampleAt = Rest[I] * BodyScale;
+		const FVector Disp = Soft->SampleDisplacementLocal(SampleAt);
+		// Bake into Pose so viscous creep preserves the soft-volume cavity.
+		Pose[I] += Disp / FMath::Max(BodyScale, 0.2f);
+	}
+}
+
 void UJellyDeformerComponent::UpdateSmoothedEngulfs(float Dt, float StepUpCm)
 {
 	for (const FEngulfSite& P : PendingEngulfs)
@@ -1100,6 +1121,7 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	ApplyGround(Dt, bGrounded, GroundImpactSpeedMps);
 	ApplyVolumePreservation();
 	ApplyInertia(LocalAcc);
+	ApplySoftVolumeSkin();
 	StepSprings(Dt);
 	WriteMesh();
 

@@ -50,6 +50,7 @@ public:
 
 protected:
 	void Integrate(float Dt, ASlimePawn* Pawn, float SpeedMps, const FVector2D& MoveInput, bool bMenu, bool bBounce, bool bBounceConfirmed, bool bJumpQueued, bool& bOutJumpConsumed);
+	bool IntegrateSoftVolume(float Dt, ASlimePawn* Pawn, const FVector& Delta, float Now);
 	bool SweepMove(ASlimePawn* Pawn, const FVector& Delta, FHitResult& OutHit) const;
 	bool TryStepUp(ASlimePawn* Pawn, const FVector& DesiredDelta, const FHitResult& BlockHit);
 	float GetMaxStepHeightCm(const ASlimePawn* Pawn) const;

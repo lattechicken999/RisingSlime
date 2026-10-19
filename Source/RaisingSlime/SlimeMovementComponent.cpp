@@ -1,6 +1,7 @@
 #include "SlimeMovementComponent.h"
 #include "ExpeditionDirector.h"
 #include "SlimePawn.h"
+#include "SlimeSoftVolumeComponent.h"
 #include "RaisingSlimeTypes.h"
 #include "Components/SphereComponent.h"
 
@@ -239,6 +240,13 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 	}
 
 	const FVector Delta(PlanarVelocity.X * Dt, PlanarVelocity.Y * Dt, VerticalVelocity * Dt);
+
+	// Soft-volume path: per-particle WorldStatic — thin poles sit under/into body.
+	if (IntegrateSoftVolume(Dt, Pawn, Delta, Now))
+	{
+		return;
+	}
+
 	FHitResult Hit;
 	const bool bBlocked = SweepMove(Pawn, Delta, Hit);
 	if (bBlocked)
@@ -321,6 +329,34 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 			}
 		}
 	}
+}
+
+bool USlimeMovementComponent::IntegrateSoftVolume(float Dt, ASlimePawn* Pawn, const FVector& Delta, float Now)
+{
+	USlimeSoftVolumeComponent* Soft = Pawn ? Pawn->GetSoftVolume() : nullptr;
+	if (!Soft || !Soft->bEnabled)
+	{
+		return false;
+	}
+
+	bool bSoftGrounded = false;
+	Soft->StepMove(Pawn, Delta, Dt, bSoftGrounded);
+	if (bSoftGrounded)
+	{
+		bGrounded = true;
+		GroundedUntil = Now + 0.14f;
+		if (VerticalVelocity < 0.f)
+		{
+			VerticalVelocity = 0.f;
+		}
+		WallFramesLeft = 0;
+		WallNormal = FVector::ZeroVector;
+	}
+	else if (Now > GroundedUntil)
+	{
+		bGrounded = false;
+	}
+	return true;
 }
 
 bool USlimeMovementComponent::SweepMove(ASlimePawn* Pawn, const FVector& Delta, FHitResult& OutHit) const

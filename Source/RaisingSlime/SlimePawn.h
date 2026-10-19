@@ -10,6 +10,7 @@ class UStaticMeshComponent;
 class UCameraComponent;
 class USlimeMovementComponent;
 class UJellyDeformerComponent;
+class USlimeSoftVolumeComponent;
 class USlimeFleshExperimentComponent;
 class UMaterialInterface;
 class AExpeditionDirector;
@@ -36,6 +37,7 @@ public:
 	UCameraComponent* GetMainCamera() const { return MainCamera; }
 
 	USlimeMovementComponent* GetSlimeMovement() const { return Movement; }
+	USlimeSoftVolumeComponent* GetSoftVolume() const { return SoftVolume; }
 
 	UFUNCTION(BlueprintCallable, Category = "Slime")
 	float GetHp() const { return Hp; }
@@ -107,6 +109,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<UJellyDeformerComponent> Jelly;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
+	TObjectPtr<USlimeSoftVolumeComponent> SoftVolume;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<USlimeFleshExperimentComponent> FleshExperiment;

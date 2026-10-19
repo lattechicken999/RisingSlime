@@ -6,6 +6,7 @@
 #include "SlimeShot.h"
 #include "SlimeMovementComponent.h"
 #include "JellyDeformerComponent.h"
+#include "SlimeSoftVolumeComponent.h"
 #include "SlimeFleshExperimentComponent.h"
 #include "SlimeVfx.h"
 #include "RaisingSlimePlayerController.h"
@@ -39,8 +40,9 @@ ASlimePawn::ASlimePawn()
 	Collision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	Collision->SetCollisionObjectType(ECC_Pawn);
 	Collision->SetCollisionResponseToAllChannels(ECR_Overlap);
-	Collision->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-	Collision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	// Soft volume owns WorldStatic contact — hard sphere must not pedestalize on poles.
+	Collision->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Ignore);
+	Collision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
 	Collision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	Collision->SetSimulatePhysics(false);
 	Collision->SetGenerateOverlapEvents(true);
@@ -69,6 +71,7 @@ ASlimePawn::ASlimePawn()
 
 	Movement = CreateDefaultSubobject<USlimeMovementComponent>(TEXT("Movement"));
 	Jelly = CreateDefaultSubobject<UJellyDeformerComponent>(TEXT("Jelly"));
+	SoftVolume = CreateDefaultSubobject<USlimeSoftVolumeComponent>(TEXT("SoftVolume"));
 	FleshExperiment = CreateDefaultSubobject<USlimeFleshExperimentComponent>(TEXT("FleshExperiment"));
 }
 
@@ -88,6 +91,13 @@ void ASlimePawn::BeginPlay()
 			Jelly->SetSlimeMaterial(CachedSlimeMaterial);
 		}
 		Jelly->SetBodyScale(GetBodySize());
+		// Soft volume is primary collision — drop cosmetic engulf-on-sphere.
+		Jelly->Settings.bUndersideEngulfFeature = false;
+		Jelly->Settings.bUndersideEngulf = false;
+	}
+	if (SoftVolume)
+	{
+		SoftVolume->RebuildRest(GetBodySize() * 50.f);
 	}
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
 	{
@@ -591,6 +601,10 @@ void ASlimePawn::Recover()
 	Channel01 = 0.f;
 	HardenUntil = 0.f;
 	Jelly->ResetMotion();
+	if (SoftVolume)
+	{
+		SoftVolume->ResetToActor();
+	}
 }
 
 void ASlimePawn::TeleportToNest(const FTransform& NestTransform)
@@ -600,6 +614,10 @@ void ASlimePawn::TeleportToNest(const FTransform& NestTransform)
 	Pitch = RaisingSlimeUnits::DefaultPitch;
 	Movement->ResetMotion();
 	Jelly->ResetMotion();
+	if (SoftVolume)
+	{
+		SoftVolume->TeleportWithActor();
+	}
 	if (ANestZone* Nest = Cast<ANestZone>(UGameplayStatics::GetActorOfClass(GetWorld(), ANestZone::StaticClass())))
 	{
 		Nest->Refresh();
@@ -657,6 +675,10 @@ void ASlimePawn::ApplyBodySize()
 	if (Jelly)
 	{
 		Jelly->SetBodyScale(Size);
+	}
+	if (SoftVolume)
+	{
+		SoftVolume->EnsureRadius(Size * 50.f);
 	}
 	MainCamera->SetRelativeLocation(FVector(-Size * 255.f, 0.f, Size * 240.f));
 }

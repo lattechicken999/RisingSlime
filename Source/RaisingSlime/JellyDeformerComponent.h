@@ -239,6 +239,8 @@ protected:
 	void ApplyDirectionalFlow(const FVector& LocalFlowDir, float FlowAmount, float StepUpCm);
 	void ApplySmoothedContacts();
 	void ApplyEngulfWrap();
+	/** Displace verts from soft-volume particle field (primary collision paradigm). */
+	void ApplySoftVolumeSkin();
 	void BuildPose(const FVector& LocalVelocityCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);
 	void ApplyVolumePreservation();
