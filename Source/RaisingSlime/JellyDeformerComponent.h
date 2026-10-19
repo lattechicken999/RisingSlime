@@ -7,56 +7,70 @@
 
 class UMaterialInterface;
 
-/** Spec §13 jelly settings. Length fields are meters (converted to cm in the solver). */
+/** Spec §13 jelly settings. Length fields are meters (converted to cm in the solver). Soft-feel retune beyond phase-1 rubber defaults. */
 USTRUCT(BlueprintType)
 struct FJellySettings
 {
 	GENERATED_BODY()
 
+	/** Softer than Unity 30 — less ping-pong rubber. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SpringStrength = 30.f;
+	float SpringStrength = 22.f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float Damping = 3.8f;
+	float Damping = 5.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float NeighborStrength = 12.f;
+	float NeighborStrength = 7.5f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumDeformationM = 0.28f;
+	float MaximumDeformationM = 0.32f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumStretch = 1.65f;
+	float MaximumStretch = 1.75f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MovementDeformation = 1.15f;
+	float MovementDeformation = 1.45f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float RecoverySpeed = 1.f;
+	float RecoverySpeed = 0.85f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SquashStrength = 1.1f;
+	float SquashStrength = 1.35f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float StretchStrength = 1.15f;
+	float StretchStrength = 1.35f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxContactDeformationM = 0.07f;
+	float CollisionDeformation = 0.85f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactRadiusM = 0.18f;
+	float MaxContactDeformationM = 0.08f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactStrength = 1.f;
+	float MaxImpactDeformationM = 0.18f;
+	UPROPERTY(EditAnywhere, Category = "Jelly")
+	float ContactRadiusM = 0.2f;
+	UPROPERTY(EditAnywhere, Category = "Jelly")
+	float ContactStrength = 1.1f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float ContactFalloff = 1.f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundDeformationHeightM = 0.22f;
+	float GroundDeformationHeightM = 0.26f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundContactStrengthM = 0.05f;
+	float GroundContactStrengthM = 0.075f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float GroundContactFalloff = 1.f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxGroundCompressionM = 0.06f;
+	float MaxGroundCompressionM = 0.085f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingImpactStrength = 0.012f;
+	float LandingImpactStrength = 0.02f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxLandingDeformationM = 0.12f;
+	float MaxLandingDeformationM = 0.16f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingVelocityThresholdMps = 1.5f;
+	float LandingVelocityThresholdMps = 1.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingBounceStrength = 1.f;
+	float LandingBounceStrength = 1.15f;
+	/** Lower = longer visible landing wobble. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingRecoverySpeed = 16.f;
+	float LandingRecoverySpeed = 9.5f;
+
+	/** Lightweight radial volume proxy (not Chaos Flesh). */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
+	float VolumePreservation = 0.4f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
+	float MaxRadialExpansionM = 0.055f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
+	float MaxVerticalCompressionM = 0.14f;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bContactDeformation = true;
@@ -64,6 +78,10 @@ struct FJellySettings
 	bool bGroundContact = true;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bLandingImpact = true;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
+	bool bVolumePreservation = true;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
+	bool bRadialExpansion = true;
 };
 
 /**
@@ -126,6 +144,7 @@ protected:
 
 	void BuildPose(const FVector& LocalVelocityCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);
+	void ApplyVolumePreservation();
 	void ApplyInertia(const FVector& LocalAccelCms);
 	void StepSprings(float Dt);
 	void ClampPose();

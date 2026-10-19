@@ -266,10 +266,10 @@ void UJellyDeformerComponent::ClampCurrentToRest()
 void UJellyDeformerComponent::BuildPose(const FVector& LocalVelocityCms)
 {
 	const FVector V = LocalVelocityCms * 0.01f; // cm/s → m/s for formulas
-	const float Elongate = FMath::Min(FMath::Abs(V.Z) * Settings.StretchStrength * 0.16f, 2.1f);
-	const float Pinch = Elongate * 0.42f;
+	const float Elongate = FMath::Min(FMath::Abs(V.Z) * Settings.StretchStrength * Settings.SquashStrength * 0.15f, 2.4f);
+	const float Pinch = Elongate * 0.45f;
 	const float PlanarSpeed = FVector2D(V.X, V.Y).Size();
-	const float Trail = FMath::Min(PlanarSpeed * Settings.MovementDeformation * 0.1f, Settings.MaximumDeformationM);
+	const float Trail = FMath::Min(PlanarSpeed * Settings.MovementDeformation * 0.12f, Settings.MaximumDeformationM);
 	const FVector PlanarDir = FVector(V.X, V.Y, 0.f).GetSafeNormal();
 	const float MaxD = MaxDeformCm();
 
@@ -352,6 +352,65 @@ void UJellyDeformerComponent::ApplyGround(float Dt, bool bGrounded, float Ground
 	ClampPose();
 }
 
+void UJellyDeformerComponent::ApplyVolumePreservation()
+{
+	if (!Settings.bVolumePreservation || Settings.VolumePreservation <= KINDA_SMALL_NUMBER || Rest.Num() == 0)
+	{
+		return;
+	}
+
+	// Mean |Z| and mean planar radius as a cheap volume proxy (cm).
+	double SumAbsZRest = 0.0;
+	double SumAbsZPose = 0.0;
+	double SumRadRest = 0.0;
+	double SumRadPose = 0.0;
+	for (int32 I = 0; I < Rest.Num(); ++I)
+	{
+		SumAbsZRest += FMath::Abs(static_cast<double>(Rest[I].Z));
+		SumAbsZPose += FMath::Abs(static_cast<double>(Pose[I].Z));
+		SumRadRest += FVector2D(Rest[I].X, Rest[I].Y).Size();
+		SumRadPose += FVector2D(Pose[I].X, Pose[I].Y).Size();
+	}
+	const double InvN = 1.0 / static_cast<double>(Rest.Num());
+	const float MeanZRest = static_cast<float>(SumAbsZRest * InvN);
+	const float MeanZPose = static_cast<float>(FMath::Max(SumAbsZPose * InvN, 1.0));
+	const float MeanRRest = static_cast<float>(FMath::Max(SumRadRest * InvN, 1.0));
+	const float MeanRPose = static_cast<float>(FMath::Max(SumRadPose * InvN, 1.0));
+
+	const float VertScale = MeanZPose / FMath::Max(MeanZRest, 1.f);
+	const float VertClamped = FMath::Clamp(VertScale, 1.f - Settings.MaxVerticalCompressionM / 0.5f, Settings.MaximumStretch);
+	const float TargetRadial = MeanRRest * FMath::Sqrt(FMath::Max(1.f / FMath::Max(VertClamped, 0.35f), 0.35f));
+	float RadialScale = TargetRadial / MeanRPose;
+	RadialScale = FMath::Lerp(1.f, RadialScale, Settings.VolumePreservation);
+
+	const float MaxExpandCm = Settings.MaxRadialExpansionM * 100.f;
+	for (int32 I = 0; I < Pose.Num(); ++I)
+	{
+		FVector P = Pose[I];
+		FVector2D Horiz(P.X, P.Y);
+		const float R0 = Horiz.Size();
+		if (R0 > KINDA_SMALL_NUMBER)
+		{
+			float NewR = R0 * RadialScale;
+			if (Settings.bRadialExpansion)
+			{
+				const float RestR = FVector2D(Rest[I].X, Rest[I].Y).Size();
+				NewR = FMath::Min(NewR, RestR + MaxExpandCm);
+			}
+			Horiz *= (NewR / R0);
+			P.X = Horiz.X;
+			P.Y = Horiz.Y;
+		}
+
+		// Soft vertical clamp toward rest for extreme squash.
+		const float MaxVertCm = Settings.MaxVerticalCompressionM * 100.f;
+		const float ZOff = P.Z - Rest[I].Z;
+		P.Z = Rest[I].Z + FMath::Clamp(ZOff, -MaxVertCm, MaxDeformCm());
+		Pose[I] = P;
+	}
+	ClampPose();
+}
+
 void UJellyDeformerComponent::ApplyInertia(const FVector& LocalAccelCms)
 {
 	const FVector DeltaMps = LocalAccelCms * 0.01f; // treat accel*dt already passed as delta-v approx
@@ -378,10 +437,12 @@ void UJellyDeformerComponent::StepSprings(float Dt)
 	TArray<FVector> Force;
 	Force.SetNumZeroed(Current.Num());
 
+	// Softer follow of pose: slightly under-damped feel without rubber snap.
 	const float K = Settings.SpringStrength * Settings.RecoverySpeed;
+	const float Damp = Settings.Damping * (0.85f + 0.15f * Settings.RecoverySpeed);
 	for (int32 I = 0; I < Current.Num(); ++I)
 	{
-		Force[I] += -K * (Current[I] - Pose[I]) - Settings.Damping * Velocity[I];
+		Force[I] += -K * (Current[I] - Pose[I]) - Damp * Velocity[I];
 	}
 
 	for (const FEdge& E : Edges)
@@ -449,7 +510,7 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 		for (const FPendingContact& C : ActiveContacts)
 		{
 			const FVector Dent = C.LocalNormal.GetSafeNormal();
-			const float Press = C.Pressure * InvSqrt;
+			const float Press = C.Pressure * InvSqrt * Settings.CollisionDeformation * Settings.ContactStrength;
 			for (int32 I = 0; I < Rest.Num(); ++I)
 			{
 				const float Facing = FVector::DotProduct(Rest[I].GetSafeNormal(), -Dent);
@@ -480,6 +541,7 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	}
 
 	ApplyGround(Dt, bGrounded, GroundImpactSpeedMps);
+	ApplyVolumePreservation();
 	ApplyInertia(LocalAcc);
 	StepSprings(Dt);
 	WriteMesh();
