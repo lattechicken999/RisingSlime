@@ -67,7 +67,7 @@ struct FJellySettings
 };
 
 /**
- * Spec §13 jelly spring body on UProceduralMeshComponent (738 verts @ lat24/lon32).
+ * Spec §13 jelly spring body on UProceduralMeshComponent (1490 verts @ lat32/lon48).
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API UJellyDeformerComponent : public UActorComponent
@@ -88,6 +88,7 @@ public:
 
 	bool IsReady() const { return bReady; }
 	UProceduralMeshComponent* GetMesh() const { return Mesh; }
+	int32 GetVertexCount() const { return Rest.Num(); }
 
 	void SetBodyScale(float InScale);
 	void SetSlimeMaterial(UMaterialInterface* Material);
@@ -95,11 +96,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	FJellySettings Settings;
 
+	/** Spec §13 spare target: latitude 32 → (32-1)*48+2 = 1490. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	int32 Latitude = 24;
+	int32 Latitude = 32;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	int32 Longitude = 32;
+	int32 Longitude = 48;
 
 protected:
 	struct FEdge
