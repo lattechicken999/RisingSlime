@@ -287,7 +287,14 @@ void ASlimePawn::Tick(float DeltaSeconds)
 			: 0.f;
 		if (Jelly)
 		{
-			Jelly->Step(RaisingSlimeUnits::FixedStep, VelAfter, Accel, Movement->IsGrounded(), ImpactMps);
+			Jelly->Step(
+				RaisingSlimeUnits::FixedStep,
+				VelAfter,
+				Accel,
+				Movement->IsGrounded(),
+				ImpactMps,
+				Movement->GetMoveIntent(),
+				Movement->GetLastStepUpCm());
 		}
 		FixedAccumulator -= RaisingSlimeUnits::FixedStep;
 		++Steps;

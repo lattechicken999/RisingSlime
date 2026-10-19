@@ -7,70 +7,88 @@
 
 class UMaterialInterface;
 
-/** Spec §13 jelly settings. Length fields are meters (converted to cm in the solver). Soft contact squash retune. */
+/**
+ * Viscous spring jelly — fluid-like traits without Niagara Fluids.
+ * Length fields are meters unless named *Cm.
+ */
 USTRUCT(BlueprintType)
 struct FJellySettings
 {
 	GENERATED_BODY()
 
-	/** Soft “물렁” springs — slow recovery, less rubber snap. */
+	/** Soft / viscous springs. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SpringStrength = 12.f;
+	float SpringStrength = 8.5f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float Damping = 6.8f;
+	float Damping = 8.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float NeighborStrength = 4.5f;
+	float NeighborStrength = 3.6f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumDeformationM = 0.45f;
+	float MaximumDeformationM = 0.48f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumStretch = 1.85f;
+	float MaximumStretch = 1.9f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MovementDeformation = 1.55f;
+	float MovementDeformation = 1.7f;
+	/** Lower = slower goo recovery. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float RecoverySpeed = 0.5f;
+	float RecoverySpeed = 0.38f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SquashStrength = 1.55f;
+	float SquashStrength = 1.65f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float StretchStrength = 1.4f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float CollisionDeformation = 1.45f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxContactDeformationM = 0.18f;
+	float StretchStrength = 1.5f;
+
+	/** Contact / flow pressure. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float CollisionDeformation = 1.15f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float MaxContactDeformationM = 0.2f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float ContactRadiusM = 0.48f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float ContactStrength = 1.35f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float ContactFalloff = 0.75f;
+	/** How fast contact pressure rises/falls (1/s). Lower = more viscous, continuous climb. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float PressureSmoothRate = 7.f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float FlowSquash = 1.35f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float FlowStretch = 1.15f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float TangentialSpread = 0.55f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float StepUpSquash = 0.9f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
+	float IntoSpeedScale = 0.012f;
+
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float MaxImpactDeformationM = 0.22f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactRadiusM = 0.42f;
+	float GroundDeformationHeightM = 0.42f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactStrength = 1.75f;
+	float GroundContactStrengthM = 0.11f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactFalloff = 0.85f;
+	float GroundContactFalloff = 0.85f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundDeformationHeightM = 0.4f;
+	float MaxGroundCompressionM = 0.14f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundContactStrengthM = 0.13f;
+	float LandingImpactStrength = 0.024f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundContactFalloff = 0.9f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxGroundCompressionM = 0.15f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingImpactStrength = 0.028f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxLandingDeformationM = 0.2f;
+	float MaxLandingDeformationM = 0.18f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float LandingVelocityThresholdMps = 1.0f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingBounceStrength = 1.2f;
-	/** Lower = longer visible landing wobble. */
+	float LandingBounceStrength = 1.1f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingRecoverySpeed = 7.5f;
+	float LandingRecoverySpeed = 6.5f;
 
-	/** Lightweight radial volume proxy (not Chaos Flesh). */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float VolumePreservation = 0.62f;
+	float VolumePreservation = 0.7f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float MaxRadialExpansionM = 0.1f;
+	float MaxRadialExpansionM = 0.12f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float MaxVerticalCompressionM = 0.22f;
+	float MaxVerticalCompressionM = 0.24f;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bContactDeformation = true;
@@ -82,14 +100,12 @@ struct FJellySettings
 	bool bVolumePreservation = true;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bRadialExpansion = true;
-	/** Probe WorldStatic / Dynamic / Pawn each jelly step for wall/floor/prey squash. */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bWorldContactProbe = true;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
+	bool bDirectionalFlow = true;
 };
 
-/**
- * Spec §13 jelly spring body on UProceduralMeshComponent (1490 verts @ lat32/lon48).
- */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API UJellyDeformerComponent : public UActorComponent
 {
@@ -101,14 +117,16 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	/** Fixed-step jelly after movement. Velocities in cm/s (pawn space). */
-	void Step(float Dt, const FVector& WorldVelocityCms, const FVector& WorldAccelCms, bool bGrounded, float GroundImpactSpeedMps);
+	/**
+	 * Fixed-step jelly. Velocities cm/s. MoveIntent = desired planar velocity (world).
+	 * StepUpCm = lift from movement step-assist this tick.
+	 */
+	void Step(float Dt, const FVector& WorldVelocityCms, const FVector& WorldAccelCms, bool bGrounded, float GroundImpactSpeedMps,
+		const FVector& WorldMoveIntentCms = FVector::ZeroVector, float StepUpCm = 0.f);
 
 	void ResetMotion();
 	void AddImpulse(const FVector& LocalPoint, const FVector& LocalDirection, float Magnitude, float Radius, float Squash, float Stretch);
-
-	/** Queue a contact dent in jelly mesh local space (PressureCm = inward displacement). */
-	void EnqueueContact(const FVector& LocalPoint, const FVector& LocalNormal, float PressureCm, float RadiusCm);
+	void EnqueueContact(const FVector& LocalPoint, const FVector& LocalNormal, float PressureCm, float RadiusCm, float IntoSpeedCms = 0.f);
 
 	bool IsReady() const { return bReady; }
 	UProceduralMeshComponent* GetMesh() const { return Mesh; }
@@ -120,7 +138,6 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	FJellySettings Settings;
 
-	/** Spec §13 spare target: latitude 32 → (32-1)*48+2 = 1490. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	int32 Latitude = 32;
 
@@ -139,8 +156,21 @@ protected:
 	{
 		FVector LocalPoint = FVector::ZeroVector;
 		FVector LocalNormal = FVector::UpVector;
-		float PressureCm = 0.f;
+		float TargetPressureCm = 0.f;
 		float RadiusCm = 0.f;
+		float IntoSpeedCms = 0.f;
+	};
+
+	/** Temporally smoothed contact field for continuous climb/squash. */
+	struct FSmoothedContact
+	{
+		FVector LocalPoint = FVector::ZeroVector;
+		FVector LocalNormal = FVector::UpVector;
+		float PressureCm = 0.f;
+		float TargetPressureCm = 0.f;
+		float RadiusCm = 0.f;
+		float IntoSpeedCms = 0.f;
+		float Age = 0.f;
 	};
 
 	void BuildRestMesh();
@@ -149,7 +179,9 @@ protected:
 	void ComputeNormals(TArray<FVector>& OutNormals) const;
 
 	void GatherWorldContacts(const FVector& WorldVelocityCms);
-	void ApplyQueuedContacts();
+	void UpdateSmoothedContacts(float Dt);
+	void ApplyDirectionalFlow(const FVector& LocalFlowDir, float FlowAmount, float StepUpCm);
+	void ApplySmoothedContacts();
 	void BuildPose(const FVector& LocalVelocityCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);
 	void ApplyVolumePreservation();
@@ -180,17 +212,19 @@ protected:
 	TArray<FProcMeshTangent> Tangents;
 	TArray<FVector> RenderNormals;
 
-	TArray<FPendingContact> ActiveContacts;
 	TArray<FPendingContact> PendingContacts;
+	TArray<FSmoothedContact> SmoothedContacts;
 
 	float BodyScale = 1.f;
 	float LandingPress = 0.f;
 	float LandingVelocity = 0.f;
+	float SmoothedFlowAmount = 0.f;
+	FVector SmoothedFlowDir = FVector::ZeroVector;
 	bool bWasGrounded = false;
 	bool bReady = false;
 	bool bAscending = false;
 
 	FVector PrevWorldVelocityCms = FVector::ZeroVector;
 
-	static constexpr int32 MaxContactsPerStep = 10;
+	static constexpr int32 MaxContactsPerStep = 8;
 };

@@ -23,15 +23,41 @@ public:
 	bool IsGrounded() const { return bGrounded; }
 	bool IsAscending() const { return VerticalVelocity > 150.f; }
 
+	/** World-space planar move intent (desired velocity direction × weight). */
+	FVector GetMoveIntent() const { return MoveIntent; }
+
+	/** Centimeters lifted by step-up assist this fixed step (for jelly flow). */
+	float GetLastStepUpCm() const { return LastStepUpCm; }
+
+	/**
+	 * Max climbable ledge as a fraction of scaled collision radius.
+	 * Default 0.64 → ~32cm at base radius 50cm.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Movement|Step")
+	float StepHeightFraction = 0.64f;
+
+	UPROPERTY(EditAnywhere, Category = "Movement|Step")
+	float MinStepHeightCm = 6.f;
+
+	UPROPERTY(EditAnywhere, Category = "Movement|Step")
+	float MaxStepHeightCapCm = 48.f;
+
+	UPROPERTY(EditAnywhere, Category = "Movement|Step")
+	bool bEnableStepUp = true;
+
 	void ResetMotion();
 	void SetPlanarVelocity(const FVector& V) { PlanarVelocity = V; }
 
 protected:
 	void Integrate(float Dt, ASlimePawn* Pawn, float SpeedMps, const FVector2D& MoveInput, bool bMenu, bool bBounce, bool bBounceConfirmed, bool bJumpQueued, bool& bOutJumpConsumed);
 	bool SweepMove(ASlimePawn* Pawn, const FVector& Delta, FHitResult& OutHit) const;
+	bool TryStepUp(ASlimePawn* Pawn, const FVector& DesiredDelta, const FHitResult& BlockHit);
+	float GetMaxStepHeightCm(const ASlimePawn* Pawn) const;
 
 	FVector PlanarVelocity = FVector::ZeroVector;
+	FVector MoveIntent = FVector::ZeroVector;
 	float VerticalVelocity = 0.f;
+	float LastStepUpCm = 0.f;
 	bool bGrounded = false;
 	bool bExtraJump = true;
 	FVector WallNormal = FVector::ZeroVector;
