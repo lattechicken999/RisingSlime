@@ -38,7 +38,7 @@ public:
 
 	/**
 	 * Local-space displacement (cm) for PMC skinning at mesh-local point (scaled cm).
-	 * Planar-biased IDW so the outer shell drapes with per-particle support heights.
+	 * Macro = wide Gaussian support-height (Z). Micro XY stays weak (no IDW spikes).
 	 */
 	FVector SampleDisplacementLocal(const FVector& MeshLocalPoint) const;
 
@@ -49,23 +49,27 @@ public:
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
 	bool bDebugDraw = false;
 
-	/** Z scale on skinned drape (≈1 = match particles; >1 causes lumps). */
-	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.5", ClampMax = "2.0"))
-	float SkinVerticalBoost = 1.05f;
+	/**
+	 * Amplify macro Z drape so half-on-obstacle silhouette clearly slopes.
+	 * Physics particles already differ; this only affects the visible shell.
+	 */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.8", ClampMax = "2.5"))
+	float SkinMacroBoost = 1.75f;
 
 	/** How much particle XY poke transfers to the shell (keep low — avoids ridged dents). */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0", ClampMax = "1"))
-	float SkinLateralScale = 0.22f;
+	float SkinLateralScale = 0.15f;
 
 	/**
-	 * Gaussian sigma as a fraction of body radius (wider = smoother macro slope, fewer micro lumps).
+	 * Gaussian sigma / body radius for the macro height field.
+	 * ~0.45 preserves half-body contrast; ~0.6+ washes drape toward flat.
 	 */
-	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.25", ClampMax = "1.2"))
-	float SkinSigmaScale = 0.62f;
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.25", ClampMax = "1.0"))
+	float SkinSigmaScale = 0.45f;
 
 	/** 0 = 3D distance, 1 = XY-only (better for support-height drape). */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0", ClampMax = "1"))
-	float SkinPlanarBias = 0.85f;
+	float SkinPlanarBias = 0.9f;
 
 	/** Viscous pull toward formation XY (1/s). High = thick goo. */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity")

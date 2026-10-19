@@ -384,14 +384,15 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	const AActor* Owner = GetOwner();
 	const FQuat YawQ = FRotator(0.f, Owner ? Owner->GetActorRotation().Yaw : 0.f, 0.f).Quaternion();
 	const FQuat InvYaw = YawQ.Inverse();
-	// Rest frame = actor body center so half-on-rock Z drape is visible on the shell.
+	// Rest frame = actor body center (COM-synced). Particle Z deltas vs this frame ARE the drape.
 	const FVector Center = BodyCenterFromActor(Owner);
 
-	// Wide Gaussian support-height field: macro slope without per-particle poke lumps.
+	// Macro support-height field: wide Gaussian on planar distance (smooth, no IDW spikes).
+	// Sigma kept moderate so half-up / half-down contrast survives; SkinMacroBoost restores read.
 	const float PlanarBias = FMath::Clamp(SkinPlanarBias, 0.f, 1.f);
-	const float VertBoost = FMath::Clamp(SkinVerticalBoost, 0.5f, 2.f);
+	const float MacroBoost = FMath::Clamp(SkinMacroBoost, 0.8f, 2.5f);
 	const float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
-	const float Sigma = FMath::Max(18.f, BodyRadiusCm * FMath::Clamp(SkinSigmaScale, 0.25f, 1.2f));
+	const float Sigma = FMath::Max(16.f, BodyRadiusCm * FMath::Clamp(SkinSigmaScale, 0.25f, 1.f));
 	const float InvTwoSig2 = 1.f / (2.f * Sigma * Sigma);
 
 	FVector Acc = FVector::ZeroVector;
@@ -400,10 +401,7 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	{
 		const FVector RestLocalCentered = P.RestLocal - RestComLocal;
 		const FVector RestWorld = Center + YawQ.RotateVector(RestLocalCentered);
-		FVector DispLocal = InvYaw.RotateVector(P.WorldPos - RestWorld);
-		DispLocal.X *= LatScale;
-		DispLocal.Y *= LatScale;
-		DispLocal.Z *= VertBoost;
+		const FVector DispLocal = InvYaw.RotateVector(P.WorldPos - RestWorld);
 
 		const float Dist3 = FVector::Dist(MeshLocalPoint, RestLocalCentered);
 		const float DistXY = FVector::Dist2D(MeshLocalPoint, RestLocalCentered);
@@ -416,7 +414,12 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	{
 		return FVector::ZeroVector;
 	}
-	return Acc / WSum;
+
+	FVector Out = Acc / WSum;
+	Out.X *= LatScale;
+	Out.Y *= LatScale;
+	Out.Z *= MacroBoost;
+	return Out;
 }
 
 bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& DesiredDelta, float Dt, bool& bOutGrounded)

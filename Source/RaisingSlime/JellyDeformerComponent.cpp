@@ -571,7 +571,7 @@ void UJellyDeformerComponent::ApplySoftVolumeSkin()
 		SoftDisp[I] = Soft->SampleDisplacementLocal(Rest[I] * BodyScale) * InvScale;
 	}
 
-	// One Laplacian pass on displacement — kills micro ridges, keeps macro slope.
+	// Laplacian on XY only — Z is the macro drape and must not be flattened.
 	if (Edges.Num() > 0)
 	{
 		TArray<FVector> SmoothDisp;
@@ -589,11 +589,13 @@ void UJellyDeformerComponent::ApplySoftVolumeSkin()
 			WSum[E.A] += 1.f;
 			WSum[E.B] += 1.f;
 		}
-		constexpr float LapBlend = 0.55f;
+		constexpr float LapBlendXY = 0.5f;
 		for (int32 I = 0; I < SoftDisp.Num(); ++I)
 		{
 			const FVector Avg = SmoothDisp[I] / WSum[I];
-			SoftDisp[I] = FMath::Lerp(SoftDisp[I], Avg, LapBlend);
+			SoftDisp[I].X = FMath::Lerp(SoftDisp[I].X, Avg.X, LapBlendXY);
+			SoftDisp[I].Y = FMath::Lerp(SoftDisp[I].Y, Avg.Y, LapBlendXY);
+			// SoftDisp[I].Z unchanged — preserves climb / partial-settle silhouette.
 		}
 	}
 
@@ -602,10 +604,10 @@ void UJellyDeformerComponent::ApplySoftVolumeSkin()
 		Pose[I] += SoftDisp[I];
 		if (Current.IsValidIndex(I))
 		{
-			// Soft bake: Z follows drape, XY stays viscous (no hard poke lock).
-			Current[I].Z = FMath::Lerp(Current[I].Z, Pose[I].Z, 0.85f);
-			Current[I].X = FMath::Lerp(Current[I].X, Pose[I].X, 0.45f);
-			Current[I].Y = FMath::Lerp(Current[I].Y, Pose[I].Y, 0.45f);
+			// Z hard-follows macro drape; XY stays viscous.
+			Current[I].Z = Pose[I].Z;
+			Current[I].X = FMath::Lerp(Current[I].X, Pose[I].X, 0.4f);
+			Current[I].Y = FMath::Lerp(Current[I].Y, Pose[I].Y, 0.4f);
 		}
 	}
 }
