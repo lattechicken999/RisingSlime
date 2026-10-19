@@ -10,6 +10,7 @@ class UStaticMeshComponent;
 class UCameraComponent;
 class USlimeMovementComponent;
 class UJellyDeformerComponent;
+class USlimeFleshExperimentComponent;
 class UMaterialInterface;
 class AExpeditionDirector;
 class ADevourable;
@@ -106,6 +107,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<UJellyDeformerComponent> Jelly;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
+	TObjectPtr<USlimeFleshExperimentComponent> FleshExperiment;
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> CachedSlimeMaterial;

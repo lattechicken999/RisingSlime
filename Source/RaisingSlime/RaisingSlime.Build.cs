@@ -17,7 +17,9 @@ public class RaisingSlime : ModuleRules
 			"Slate",
 			"SlateCore",
 			"ProceduralMeshComponent",
-			"Niagara"
+			"Niagara",
+			"ChaosFleshEngine",
+			"ChaosFlesh"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

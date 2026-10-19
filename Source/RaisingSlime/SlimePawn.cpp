@@ -6,6 +6,7 @@
 #include "SlimeShot.h"
 #include "SlimeMovementComponent.h"
 #include "JellyDeformerComponent.h"
+#include "SlimeFleshExperimentComponent.h"
 #include "SlimeVfx.h"
 #include "RaisingSlimePlayerController.h"
 #include "RaisingSlimeHud.h"
@@ -68,6 +69,7 @@ ASlimePawn::ASlimePawn()
 
 	Movement = CreateDefaultSubobject<USlimeMovementComponent>(TEXT("Movement"));
 	Jelly = CreateDefaultSubobject<UJellyDeformerComponent>(TEXT("Jelly"));
+	FleshExperiment = CreateDefaultSubobject<USlimeFleshExperimentComponent>(TEXT("FleshExperiment"));
 }
 
 void ASlimePawn::BeginPlay()
