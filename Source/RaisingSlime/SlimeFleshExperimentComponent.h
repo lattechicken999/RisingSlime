@@ -11,8 +11,8 @@ class UJellyDeformerComponent;
 
 /**
  * Spec §13 Chaos Flesh experiment scaffold.
- * Does not replace gameplay collision / spring jelly until a valid FleshAsset
- * with tetrahedra exists. Empty FA_SlimeBody shells must leave jelly visible.
+ * Visual primary is always the spring jelly PMC until Flesh mesh is
+ * intentionally shown as a sphere-aligned soft body (not a tet pedestal).
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeFleshExperimentComponent : public UActorComponent
@@ -29,15 +29,23 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Flesh")
 	bool bEnableFleshExperiment = true;
 
-	/** Soft path; authored via Dataflow (StaticToTet / Radial) later. */
+	/** Soft path; authored via Dataflow (StaticToTet / Radial). */
 	UPROPERTY(EditAnywhere, Category = "Flesh")
 	FSoftObjectPath FleshAssetPath = FSoftObjectPath(TEXT("/Game/Flesh/FA_SlimeBody.FA_SlimeBody"));
 
 	/**
-	 * Hide procedural jelly only when Flesh tet sim is actually running.
-	 * Default false: empty RestCollection shells must never blank the slime body.
+	 * Draw Flesh tet ProceduralMesh. Default false — FA RestCollection currently
+	 * renders as a faceted tet volume under the jelly sphere (double body).
+	 * Keep spring jelly as the only visible slime until Flesh is visual-ready.
 	 */
 	UPROPERTY(EditAnywhere, Category = "Flesh")
+	bool bShowFleshMesh = false;
+
+	/**
+	 * Hide spring jelly only when Flesh mesh is shown AND sim is active.
+	 * Ignored while bShowFleshMesh is false (jelly always stays).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Flesh", meta = (EditCondition = "bShowFleshMesh"))
 	bool bHideJellyWhenFleshActive = false;
 
 	UPROPERTY(EditAnywhere, Category = "Flesh")
@@ -50,6 +58,8 @@ protected:
 	void ShutdownFlesh();
 	void SyncTransformToOwner();
 	void SetJellyVisible(bool bVisible) const;
+	void SetFleshMeshVisible(bool bVisible) const;
+	void AlignFleshToSlimeBody() const;
 	void MakeFleshActorsMovable() const;
 	bool HasTetrahedralRestCollection(const UFleshAsset* Asset) const;
 	UFleshAsset* LoadFleshAsset() const;

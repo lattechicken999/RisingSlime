@@ -1,5 +1,6 @@
 #include "SlimeFleshExperimentComponent.h"
 #include "JellyDeformerComponent.h"
+#include "RaisingSlimeTypes.h"
 #include "ChaosFlesh/FleshActor.h"
 #include "ChaosFlesh/FleshComponent.h"
 #include "ChaosFlesh/FleshAsset.h"
@@ -9,6 +10,7 @@
 #include "ChaosFlesh/ChaosFleshCollectionFacade.h"
 #include "ChaosFlesh/FleshCollection.h"
 #include "Components/SceneComponent.h"
+#include "ProceduralMeshComponent.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 
@@ -21,7 +23,7 @@ USlimeFleshExperimentComponent::USlimeFleshExperimentComponent()
 void USlimeFleshExperimentComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	// Always ensure jelly is visible before attempting Flesh (empty shells used to hide it).
+	// Spring jelly is the cohesive slime look; never blank it for an incomplete Flesh visual.
 	SetJellyVisible(true);
 	if (bEnableFleshExperiment)
 	{
@@ -94,6 +96,42 @@ void USlimeFleshExperimentComponent::SetJellyVisible(bool bVisible) const
 	}
 }
 
+void USlimeFleshExperimentComponent::SetFleshMeshVisible(bool bVisible) const
+{
+	if (!FleshActor)
+	{
+		return;
+	}
+
+	FleshActor->SetActorHiddenInGame(!bVisible);
+	FleshActor->SetActorEnableCollision(false);
+
+	if (UFleshComponent* FleshComp = FleshActor->GetFleshComponent())
+	{
+		// Tetrahedral component only rebuilds its viz PMC while IsVisible().
+		FleshComp->SetVisibility(bVisible, true);
+		FleshComp->SetHiddenInGame(!bVisible, true);
+		if (UProceduralMeshComponent* VizMesh = FleshComp->Mesh)
+		{
+			VizMesh->SetVisibility(bVisible);
+			VizMesh->SetHiddenInGame(!bVisible);
+			VizMesh->SetCastShadow(false);
+		}
+	}
+}
+
+void USlimeFleshExperimentComponent::AlignFleshToSlimeBody() const
+{
+	if (!FleshActor)
+	{
+		return;
+	}
+	// Match jelly PMC: raised by BodyHeightCm above pawn root (feet).
+	FleshActor->SetActorRelativeLocation(FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm));
+	FleshActor->SetActorRelativeRotation(FRotator::ZeroRotator);
+	FleshActor->SetActorRelativeScale3D(FVector::OneVector);
+}
+
 void USlimeFleshExperimentComponent::MakeFleshActorsMovable() const
 {
 	auto MakeMovable = [](AActor* Actor)
@@ -143,7 +181,7 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 	if (!CachedFleshAsset)
 	{
 		UE_LOG(LogTemp, Display,
-			TEXT("SlimeFlesh: FA_SlimeBody missing — scaffold only. Run Content/Python/create_flesh_scaffold.py then author tet mesh via Dataflow (DF_StaticToTetMesh / Radial). Spring jelly stays primary."));
+			TEXT("SlimeFlesh: FA_SlimeBody missing — scaffold only. Spring jelly stays primary."));
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(INDEX_NONE, 6.f, FColor::Orange,
@@ -155,7 +193,7 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 	if (!HasTetrahedralRestCollection(CachedFleshAsset))
 	{
 		UE_LOG(LogTemp, Display,
-			TEXT("SlimeFlesh: FA_SlimeBody RestCollection empty/no tetrahedra — finish Dataflow tetmeshing. Spring jelly stays primary."));
+			TEXT("SlimeFlesh: FA_SlimeBody RestCollection empty/no tetrahedra — Spring jelly stays primary."));
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(INDEX_NONE, 6.f, FColor::Orange,
@@ -183,23 +221,29 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 	MakeFleshActorsMovable();
 
 	FleshActor->AttachToActor(Owner, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	AlignFleshToSlimeBody();
+
 	FleshActor->GetFleshComponent()->SetRestCollection(CachedFleshAsset);
 	FleshActor->GetFleshComponent()->BodyForces.bApplyGravity = true;
 	FleshActor->GetFleshComponent()->BodyForces.IncompressibilityMultiplier = IncompressibilityMultiplier;
 	FleshActor->GetFleshComponent()->SimulationSpace.SimSpace = ChaosDeformableSimSpace::ComponentXf;
 
-	if (UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_Slime.M_Slime")))
+	if (bShowFleshMesh)
 	{
-		FleshActor->GetFleshComponent()->SetMaterial(0, Mat);
+		if (UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_Slime.M_Slime")))
+		{
+			FleshActor->GetFleshComponent()->SetMaterial(0, Mat);
+		}
 	}
 
 	FleshActor->PrimarySolver = SolverActor;
 	FleshActor->EnableSimulation(SolverActor);
 
 	bFleshActive = true;
-	UE_LOG(LogTemp, Display, TEXT("SlimeFlesh: simulation enabled (Component space, incompressibility=%.2f)"), IncompressibilityMultiplier);
 
-	if (bHideJellyWhenFleshActive)
+	// Incomplete Flesh visual = tet volume / pedestal. Hide it; jelly is the body.
+	SetFleshMeshVisible(bShowFleshMesh);
+	if (bShowFleshMesh && bHideJellyWhenFleshActive)
 	{
 		SetJellyVisible(false);
 		bHidJelly = true;
@@ -210,9 +254,16 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 		bHidJelly = false;
 	}
 
+	UE_LOG(LogTemp, Display,
+		TEXT("SlimeFlesh: simulation enabled (mesh=%s, jelly primary=%s, incompressibility=%.2f)"),
+		bShowFleshMesh ? TEXT("shown") : TEXT("hidden"),
+		(!bShowFleshMesh || !bHideJellyWhenFleshActive) ? TEXT("yes") : TEXT("no"),
+		IncompressibilityMultiplier);
+
 	if (GEngine)
 	{
-		GEngine->AddOnScreenDebugMessage(INDEX_NONE, 4.f, FColor::Green, TEXT("SlimeFlesh: ACTIVE"));
+		GEngine->AddOnScreenDebugMessage(INDEX_NONE, 4.f, FColor::Cyan,
+			bShowFleshMesh ? TEXT("SlimeFlesh: ACTIVE (mesh on)") : TEXT("SlimeFlesh: sim on, mesh hidden — jelly body"));
 	}
 }
 
@@ -238,9 +289,11 @@ void USlimeFleshExperimentComponent::ShutdownFlesh()
 
 void USlimeFleshExperimentComponent::SyncTransformToOwner()
 {
-	// Attached FleshActor follows owner; keep solver colocated for world queries.
+	// Attached FleshActor follows owner; keep solver colocated (body-height offset).
 	if (SolverActor && GetOwner())
 	{
-		SolverActor->SetActorTransform(GetOwner()->GetActorTransform());
+		FTransform Xf = GetOwner()->GetActorTransform();
+		Xf.AddToTranslation(Xf.TransformVectorNoScale(FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm)));
+		SolverActor->SetActorTransform(Xf);
 	}
 }
