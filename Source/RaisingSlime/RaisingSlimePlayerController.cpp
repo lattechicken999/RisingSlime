@@ -69,7 +69,7 @@ void ARaisingSlimePlayerController::ApplyMappingContext()
 			if (!Subsystem->HasMappingContext(MappingContext))
 			{
 				Subsystem->AddMappingContext(MappingContext, 0);
-				UE_LOG(LogTemp, Log, TEXT("RaisingSlimePC: IMC_Slime_Runtime added"));
+				UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: mapping context added (%s)"), *MappingContext->GetName());
 			}
 		}
 		else
@@ -119,9 +119,54 @@ void ARaisingSlimePlayerController::ApplyCursorState()
 	}
 }
 
+bool ARaisingSlimePlayerController::TryLoadAssetInput()
+{
+	if (MappingContext && MoveAction)
+	{
+		return true;
+	}
+
+	UInputMappingContext* LoadedImc = LoadObject<UInputMappingContext>(nullptr, TEXT("/Game/Input/IMC_Slime.IMC_Slime"));
+	UInputAction* LoadedMove = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Move.IA_Move"));
+	UInputAction* LoadedLook = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Look.IA_Look"));
+	UInputAction* LoadedJump = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Jump.IA_Jump"));
+	UInputAction* LoadedAttack = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Attack.IA_Attack"));
+	UInputAction* LoadedTrait = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Trait.IA_Trait"));
+	UInputAction* LoadedCycle = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_CycleTrait.IA_CycleTrait"));
+	UInputAction* LoadedDigest = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Digest.IA_Digest"));
+	UInputAction* LoadedCursor = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Cursor.IA_Cursor"));
+	UInputAction* LoadedFocus = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Focus.IA_Focus"));
+
+	if (!LoadedImc || !LoadedMove || !LoadedLook || !LoadedJump || !LoadedAttack
+		|| !LoadedTrait || !LoadedCycle || !LoadedDigest || !LoadedCursor || !LoadedFocus)
+	{
+		return false;
+	}
+
+	MappingContext = LoadedImc;
+	MoveAction = LoadedMove;
+	LookAction = LoadedLook;
+	JumpAction = LoadedJump;
+	AttackAction = LoadedAttack;
+	TraitAction = LoadedTrait;
+	CycleTraitAction = LoadedCycle;
+	DigestAction = LoadedDigest;
+	CursorAction = LoadedCursor;
+	FocusAction = LoadedFocus;
+
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded /Game/Input/IMC_Slime + IA_* assets"));
+	return true;
+}
+
 void ARaisingSlimePlayerController::BuildRuntimeInput()
 {
-	if (MappingContext)
+	if (MappingContext && MoveAction)
+	{
+		return;
+	}
+
+	// Prefer Content assets on real instances (not CDO).
+	if (!HasAnyFlags(RF_ClassDefaultObject) && TryLoadAssetInput())
 	{
 		return;
 	}
@@ -175,5 +220,5 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 	MappingContext->MapKey(CursorAction, EKeys::Escape);
 	MappingContext->MapKey(FocusAction, EKeys::LeftMouseButton);
 
-	UE_LOG(LogTemp, Log, TEXT("RaisingSlimePC: runtime IMC/actions built"));
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: runtime IMC/actions built (asset fallback)"));
 }

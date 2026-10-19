@@ -42,6 +42,7 @@ public:
 
 protected:
 	void BuildRuntimeInput();
+	bool TryLoadAssetInput();
 	void ApplyMappingContext();
 	void ApplyCursorState();
 	void NotifyPossessedPawnToBindInput();
