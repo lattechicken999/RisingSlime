@@ -1,19 +1,22 @@
-# Rebuild /Game/Materials/M_Slime per Spec §14 phase 2 (Substrate slab + refraction).
-# Phase 1 emissive wrap formula is removed — slab receives lighting once.
-# Run: UnrealEditor-Cmd RisingSlime.uproject -ExecutePythonScript=.../create_m_slime.py -unattended -NullRHI
+# Rebuild /Game/Materials/M_Slime per Spec §14 (Substrate slab + readable green body).
+# Keeps translucency but raises opacity / thickness so Base green is visible (not clear glass).
 import unreal
 
 ASSET_PATH = "/Game/Materials/M_Slime"
 MEL = unreal.MaterialEditingLibrary
 
-# Spec §14
-BASE = unreal.LinearColor(0.45, 0.92, 0.36, 0.86)
-CORE = unreal.LinearColor(0.04, 0.38, 0.08, 1.0)
-# F0 from IOR 1.33 ≈ ((n-1)/(n+1))^2
+# Spec §14 Base/Core — Base a bit punchier for readability in greybox light.
+BASE = unreal.LinearColor(0.38, 0.88, 0.28, 1.0)
+CORE = unreal.LinearColor(0.03, 0.32, 0.06, 1.0)
 IOR = 1.33
-F0_FROM_IOR = ((IOR - 1.0) / (IOR + 1.0)) ** 2  # ~0.02005
-THICKNESS_CM = 2.0
-ROUGHNESS = 0.42
+F0_FROM_IOR = ((IOR - 1.0) / (IOR + 1.0)) ** 2
+THICKNESS_CM = 8.0
+ROUGHNESS = 0.55
+# Spec lerp(0.42, 0.9) reads as glass under Substrate; raise floor for solid green jelly.
+OPACITY_MIN = 0.78
+OPACITY_MAX = 0.94
+# Tiny emissive so body color reads even when translucency lighting is sparse (not the phase-1 wrap).
+EMISSIVE_SCALE = 0.12
 
 
 def ensure_folder(path):
@@ -34,12 +37,10 @@ def dump_inputs(node, label):
 
 
 def connect_expr(src, src_pin, dst, dst_pin_candidates):
-    """dst_pin_candidates: str or list of pin name attempts."""
     if isinstance(dst_pin_candidates, str):
         dst_pin_candidates = [dst_pin_candidates]
     for dst_pin in dst_pin_candidates:
-        ok = MEL.connect_material_expressions(src, src_pin, dst, dst_pin)
-        if ok:
+        if MEL.connect_material_expressions(src, src_pin, dst, dst_pin):
             return True
     unreal.log_warning("connect failed: {}[{}] -> {} tried {}".format(
         src.get_class().get_name(), src_pin, dst.get_class().get_name(), dst_pin_candidates))
@@ -80,88 +81,78 @@ def main():
         if mat is None:
             unreal.log_error("Failed to create M_Slime")
             return
-        unreal.log("Created {}".format(ASSET_PATH))
 
     MEL.delete_all_material_expressions(mat)
 
-    # --- Material domain / blend ---
     try:
         mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT_COLORED_TRANSMITTANCE)
     except Exception as ex:
-        unreal.log_warning("BLEND_TRANSLUCENT_COLORED_TRANSMITTANCE failed ({}), fallback Translucent".format(ex))
-        try:
-            mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
-        except Exception:
-            pass
+        unreal.log_warning("ColoredTransmittance failed ({}), fallback Translucent".format(ex))
+        mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
 
     try:
         mat.set_editor_property("translucency_lighting_mode", unreal.TranslucencyLightingMode.TLM_SURFACE)
     except Exception as ex:
         unreal.log_warning("translucency_lighting_mode: {}".format(ex))
 
-    try:
-        mat.set_editor_property("two_sided", True)
-    except Exception:
-        pass
+    mat.set_editor_property("two_sided", True)
 
     try:
-        # Prefer physical IOR refraction for translucent Substrate path.
         mat.set_editor_property("refraction_method", unreal.RefractionMode.RM_INDEX_OF_REFRACTION)
     except Exception as ex:
         unreal.log_warning("refraction_method: {}".format(ex))
 
-    try:
-        mat.set_editor_property("b_thin_surface", True)
-    except Exception:
+    # Thick jelly body (thin surface + high refraction looked like clear glass).
+    for prop in ("b_thin_surface", "thin_surface"):
         try:
-            mat.set_editor_property("thin_surface", True)
+            mat.set_editor_property(prop, False)
+            break
         except Exception:
             pass
 
-    # --- Nodes: facing-based opacity ---
-    # facing = saturate(dot(CameraVectorWS, Normal * TwoSidedSign))
-    # alpha  = lerp(0.42, 0.9, facing)
+    # facing = saturate(dot(cam, n * TwoSidedSign))
     cam = expr(mat, unreal.MaterialExpressionCameraVectorWS, -900, 200)
     nrm = expr(mat, unreal.MaterialExpressionPixelNormalWS, -900, 280)
     sign = expr(mat, unreal.MaterialExpressionTwoSidedSign, -900, 360)
 
     flipped = expr(mat, unreal.MaterialExpressionMultiply, -700, 300)
+    dump_inputs(flipped, "Multiply")
     connect_expr(nrm, "", flipped, ["A", ""])
-    connect_expr(sign, "", flipped, ["B", "A"])
+    connect_expr(sign, "", flipped, ["B"])
 
     dot = expr(mat, unreal.MaterialExpressionDotProduct, -500, 240)
+    dump_inputs(dot, "Dot")
     connect_expr(cam, "", dot, ["A", ""])
-    connect_expr(flipped, "", dot, ["B", "A"])
+    connect_expr(flipped, "", dot, ["B"])
 
     facing = expr(mat, unreal.MaterialExpressionSaturate, -300, 240)
     connect_expr(dot, "", facing, [""])
 
-    a_min = const1(mat, 0.42, -500, 360)
-    a_max = const1(mat, 0.90, -500, 420)
+    a_min = const1(mat, OPACITY_MIN, -500, 360)
+    a_max = const1(mat, OPACITY_MAX, -500, 420)
     alpha = expr(mat, unreal.MaterialExpressionLinearInterpolate, -100, 300)
+    dump_inputs(alpha, "Lerp")
     connect_expr(a_min, "", alpha, ["A", ""])
-    connect_expr(a_max, "", alpha, ["B", "A"])
-    connect_expr(facing, "", alpha, ["Alpha", "B"])
-
+    connect_expr(a_max, "", alpha, ["B"])
+    connect_expr(facing, "", alpha, ["Alpha"])
     connect_prop(alpha, "", unreal.MaterialProperty.MP_OPACITY)
 
-    # --- Substrate Slab ---
     base = const3(mat, unreal.LinearColor(BASE.r, BASE.g, BASE.b, 1.0), -700, -200)
     core = const3(mat, unreal.LinearColor(CORE.r, CORE.g, CORE.b, 1.0), -700, -40)
     thickness = const1(mat, THICKNESS_CM, -700, 40)
     f0 = const3(mat, unreal.LinearColor(F0_FROM_IOR, F0_FROM_IOR, F0_FROM_IOR, 1.0), -700, -320)
     rough = const1(mat, ROUGHNESS, -700, -380)
+    emis_scale = const1(mat, EMISSIVE_SCALE, -700, -120)
+    emis = expr(mat, unreal.MaterialExpressionMultiply, -450, -160)
+    connect_expr(base, "", emis, ["A", ""])
+    connect_expr(emis_scale, "", emis, ["B"])
 
     mfp = expr(mat, unreal.MaterialExpressionSubstrateTransmittanceToMFP, -450, -40)
-    dump_inputs(mfp, "TransmittanceToMFP")
-    # First input is TransmittanceColor; pin name may be shortened or empty.
     connect_expr(core, "", mfp, ["TransmittanceColor", "Transmittance Color", ""])
     connect_expr(thickness, "", mfp, ["Thickness"])
 
     slab = expr(mat, unreal.MaterialExpressionSubstrateSlabBSDF, -100, -200)
-    dump_inputs(slab, "SlabBSDF")
     try:
-        # Optically thin jelly; translucent blend falls back from Diffusion anyway.
         slab.set_editor_property("sub_surface_type", unreal.MaterialSubSurfaceType.MSS_SIMPLE_VOLUME)
     except Exception as ex:
         unreal.log_warning("SubSurfaceType: {}".format(ex))
@@ -170,11 +161,11 @@ def main():
     connect_expr(f0, "", slab, ["F0"])
     connect_expr(rough, "", slab, ["Roughness"])
     connect_expr(flipped, "", slab, ["Normal"])
-    connect_expr(mfp, "MFP", slab, ["SSS MFP", "SSSMFP", "SSS MFP "])
+    connect_expr(mfp, "MFP", slab, ["SSS MFP", "SSSMFP"])
+    connect_expr(emis, "", slab, ["Emissive Color", "EmissiveColor"])
 
     connect_prop(slab, "", unreal.MaterialProperty.MP_FRONT_MATERIAL)
 
-    # --- Refraction IOR 1.33 ---
     ior = const1(mat, IOR, -100, 420)
     connect_prop(ior, "", unreal.MaterialProperty.MP_REFRACTION)
 
@@ -182,8 +173,8 @@ def main():
     MEL.recompile_material(mat)
     unreal.EditorAssetLibrary.save_asset(ASSET_PATH)
     unreal.log(
-        "M_Slime §14 phase2: Substrate slab Base+Core MFP, opacity facing lerp, IOR={:.2f}, F0={:.4f}".format(
-            IOR, F0_FROM_IOR))
+        "M_Slime readable green: opacity [{:.2f},{:.2f}] thick={}cm emissive*={:.2f}".format(
+            OPACITY_MIN, OPACITY_MAX, THICKNESS_CM, EMISSIVE_SCALE))
     try:
         unreal.SystemLibrary.quit_editor()
     except Exception:
