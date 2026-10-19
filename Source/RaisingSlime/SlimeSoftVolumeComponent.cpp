@@ -6,6 +6,23 @@
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
+#include "HAL/IConsoleManager.h"
+
+static TAutoConsoleVariable<int32> CVarSlimeSoftVolDebugDraw(
+	TEXT("slime.SoftVolume.DebugDraw"),
+	0,
+	TEXT("Draw soft-volume particle spheres (0=off, 1=on). Also toggled by slime.SoftVolume.ToggleDebug."),
+	ECVF_Cheat);
+
+static FAutoConsoleCommand CCmdSlimeSoftVolToggleDebug(
+	TEXT("slime.SoftVolume.ToggleDebug"),
+	TEXT("Toggle soft-volume particle debug draw."),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		const int32 Next = CVarSlimeSoftVolDebugDraw.GetValueOnGameThread() ? 0 : 1;
+		CVarSlimeSoftVolDebugDraw->Set(Next, ECVF_SetByConsole);
+		UE_LOG(LogTemp, Log, TEXT("slime.SoftVolume.DebugDraw = %d"), Next);
+	}));
 
 USlimeSoftVolumeComponent::USlimeSoftVolumeComponent()
 {
@@ -35,7 +52,8 @@ void USlimeSoftVolumeComponent::BeginPlay()
 void USlimeSoftVolumeComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	if (!bDebugDraw || !bEnabled || Particles.Num() == 0 || !GetWorld())
+	const bool bDraw = bDebugDraw || (CVarSlimeSoftVolDebugDraw.GetValueOnGameThread() != 0);
+	if (!bDraw || !bEnabled || Particles.Num() == 0 || !GetWorld())
 	{
 		return;
 	}
@@ -366,21 +384,50 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	const AActor* Owner = GetOwner();
 	const FQuat YawQ = FRotator(0.f, Owner ? Owner->GetActorRotation().Yaw : 0.f, 0.f).Quaternion();
 	const FQuat InvYaw = YawQ.Inverse();
-	// Rest frame = actor body center (not particle COM) so world Z drape shows on mesh
-	// even when COM sits between floor and obstacle heights.
+	// Rest frame = actor body center so half-on-rock Z drape is visible on the shell.
 	const FVector Center = BodyCenterFromActor(Owner);
+
+	const float Power = FMath::Clamp(SkinFalloffPower, 1.f, 4.f);
+	const float PlanarBias = FMath::Clamp(SkinPlanarBias, 0.f, 1.f);
+	const float AlignW = FMath::Clamp(SkinAlignWeight, 0.f, 1.f);
+	const float VertBoost = FMath::Clamp(SkinVerticalBoost, 0.5f, 2.5f);
+	const FVector VertDir = MeshLocalPoint.GetSafeNormal();
 
 	FVector Acc = FVector::ZeroVector;
 	float WSum = 0.f;
 	for (const FParticle& P : Particles)
 	{
-		const FVector RestWorld = Center + YawQ.RotateVector(P.RestLocal - RestComLocal);
-		const FVector DispWorld = P.WorldPos - RestWorld;
 		const FVector RestLocalCentered = P.RestLocal - RestComLocal;
-		const float Dist = FVector::Dist(MeshLocalPoint, RestLocalCentered);
-		const float Sigma = FMath::Max(8.f, P.Radius * 1.6f);
-		const float W = FMath::Exp(-(Dist * Dist) / (2.f * Sigma * Sigma));
-		Acc += InvYaw.RotateVector(DispWorld) * W;
+		const FVector RestWorld = Center + YawQ.RotateVector(RestLocalCentered);
+		FVector DispLocal = InvYaw.RotateVector(P.WorldPos - RestWorld);
+		DispLocal.Z *= VertBoost;
+
+		const float Dist3 = FVector::Dist(MeshLocalPoint, RestLocalCentered);
+		const float DistXY = FVector::Dist2D(MeshLocalPoint, RestLocalCentered);
+		const float Dist = FMath::Lerp(Dist3, DistXY, PlanarBias);
+		const float SoftR = FMath::Max(6.f, P.Radius * 0.85f);
+		const float WDist = 1.f / (0.001f + FMath::Pow(Dist / SoftR, Power));
+
+		float Align = 1.f;
+		if (AlignW > KINDA_SMALL_NUMBER && !VertDir.IsNearlyZero() && RestLocalCentered.SizeSquared() > 1.f)
+		{
+			Align = 0.25f + 0.75f * FMath::Max(0.f, FVector::DotProduct(VertDir, RestLocalCentered.GetSafeNormal()));
+			Align = FMath::Lerp(1.f, Align, AlignW);
+		}
+
+		// Underside verts lean on lower particles (support height carriers).
+		float HeightMatch = 1.f;
+		if (MeshLocalPoint.Z < 0.f && RestLocalCentered.Z < 0.f)
+		{
+			HeightMatch = 1.35f;
+		}
+		else if (MeshLocalPoint.Z > 0.f && RestLocalCentered.Z > BodyRadiusCm * 0.1f)
+		{
+			HeightMatch = 1.15f;
+		}
+
+		const float W = WDist * Align * HeightMatch;
+		Acc += DispLocal * W;
 		WSum += W;
 	}
 	if (WSum < KINDA_SMALL_NUMBER)

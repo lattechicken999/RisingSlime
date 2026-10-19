@@ -563,13 +563,21 @@ void UJellyDeformerComponent::ApplySoftVolumeSkin()
 		return;
 	}
 
+	const float InvScale = 1.f / FMath::Max(BodyScale, 0.2f);
 	for (int32 I = 0; I < Pose.Num(); ++I)
 	{
-		// Soft volume rest is in world-cm (scaled radius); mesh Rest is pre-scale.
-		const FVector SampleAt = Rest[I] * BodyScale;
-		const FVector Disp = Soft->SampleDisplacementLocal(SampleAt);
-		// Bake into Pose so viscous creep preserves the soft-volume cavity.
-		Pose[I] += Disp / FMath::Max(BodyScale, 0.2f);
+		// Soft volume rest is world-cm (scaled); mesh Rest is pre-scale.
+		const FVector Disp = Soft->SampleDisplacementLocal(Rest[I] * BodyScale) * InvScale;
+		Pose[I] += Disp;
+
+		// Bake drape into Current this frame — especially Z — so the M_Slime shell
+		// matches particle support heights (not a rigid ball lagging behind springs).
+		if (Current.IsValidIndex(I))
+		{
+			Current[I].Z = Pose[I].Z;
+			Current[I].X = FMath::Lerp(Current[I].X, Pose[I].X, 0.7f);
+			Current[I].Y = FMath::Lerp(Current[I].Y, Pose[I].Y, 0.7f);
+		}
 	}
 }
 
@@ -1121,8 +1129,9 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	ApplyGround(Dt, bGrounded, GroundImpactSpeedMps);
 	ApplyVolumePreservation();
 	ApplyInertia(LocalAcc);
-	ApplySoftVolumeSkin();
 	StepSprings(Dt);
+	// Soft-volume drape after springs so particle support heights win the silhouette.
+	ApplySoftVolumeSkin();
 	WriteMesh();
 
 	PrevWorldVelocityCms = WorldVelocityCms;

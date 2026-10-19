@@ -36,14 +36,34 @@ public:
 	float GetParticleRadius(int32 Index) const;
 	FVector GetBodyCenterWorld() const;
 
-	/** Local-space displacement field for mesh skinning (cm), sampled at mesh-local point. */
+	/**
+	 * Local-space displacement (cm) for PMC skinning at mesh-local point (scaled cm).
+	 * Planar-biased IDW so the outer shell drapes with per-particle support heights.
+	 */
 	FVector SampleDisplacementLocal(const FVector& MeshLocalPoint) const;
 
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
 	bool bEnabled = true;
 
+	/** Off by default — use console `slime.SoftVolume.DebugDraw 1` or ToggleDebug. */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
-	bool bDebugDraw = true;
+	bool bDebugDraw = false;
+
+	/** Extra Z scale on skinned displacement so the shell matches particle climb. */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.5", ClampMax = "2.5"))
+	float SkinVerticalBoost = 1.4f;
+
+	/** IDW power (higher = sharper local drape). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "1", ClampMax = "4"))
+	float SkinFalloffPower = 2.6f;
+
+	/** 0 = 3D distance, 1 = XY-only distance for weights. */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0", ClampMax = "1"))
+	float SkinPlanarBias = 0.75f;
+
+	/** Prefer particles on the same side of the body as the vertex (shell follow). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0", ClampMax = "1"))
+	float SkinAlignWeight = 0.6f;
 
 	/** Viscous pull toward formation XY (1/s). High = thick goo. */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity")
