@@ -8,6 +8,20 @@ namespace
 {
 	const TCHAR* PathFor(ESlimeSplashKind Kind)
 	{
+		// Prefer Niagara Fluids FLIP splash; fall back to legacy RadialBurst copies.
+		switch (Kind)
+		{
+		case ESlimeSplashKind::Spit:
+			return TEXT("/Game/FX/NS_SpitSplash_Fluids.NS_SpitSplash_Fluids");
+		case ESlimeSplashKind::Death:
+			return TEXT("/Game/FX/NS_DeathSplash_Fluids.NS_DeathSplash_Fluids");
+		default:
+			return TEXT("/Game/FX/NS_DevourSplash_Fluids.NS_DevourSplash_Fluids");
+		}
+	}
+
+	const TCHAR* LegacyPathFor(ESlimeSplashKind Kind)
+	{
 		switch (Kind)
 		{
 		case ESlimeSplashKind::Spit:
@@ -34,7 +48,11 @@ namespace
 
 	UNiagaraSystem* LoadSplash(ESlimeSplashKind Kind)
 	{
-		return LoadObject<UNiagaraSystem>(nullptr, PathFor(Kind));
+		if (UNiagaraSystem* Fluids = LoadObject<UNiagaraSystem>(nullptr, PathFor(Kind)))
+		{
+			return Fluids;
+		}
+		return LoadObject<UNiagaraSystem>(nullptr, LegacyPathFor(Kind));
 	}
 
 	void ScreenNote(UWorld* World, const FString& Msg, const FColor& Color)
@@ -78,11 +96,13 @@ void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Locatio
 		return;
 	}
 
-	const float Scale = FMath::Clamp(0.35f + BodySize * 0.25f, 0.35f, 1.1f);
+	// Fluids FLIP splash reads best slightly above ground; keep within ~2 m of body.
+	const float Scale = FMath::Clamp(0.45f + BodySize * 0.35f, 0.45f, 1.35f);
+	const FVector SpawnAt = Location + FVector(0.f, 0.f, 8.f);
 	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 		World,
 		System,
-		Location,
+		SpawnAt,
 		FRotator::ZeroRotator,
 		FVector(Scale),
 		true,
@@ -92,6 +112,6 @@ void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Locatio
 
 	ScreenNote(
 		World,
-		FString::Printf(TEXT("SlimeVfx: spawned %s scale=%.2f"), LabelFor(Kind), Scale),
+		FString::Printf(TEXT("SlimeVfx: Fluids splash %s scale=%.2f"), LabelFor(Kind), Scale),
 		FColor::Cyan);
 }

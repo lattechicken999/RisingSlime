@@ -5,7 +5,7 @@
 class UNiagaraSystem;
 class UWorld;
 
-/** Spec residual: splash FX within ~2 m of the body (Niagara, not Fluids yet). */
+/** Spec residual: splash FX within ~2 m of the body (Niagara Fluids VFX only — not gameplay physics). */
 enum class ESlimeSplashKind : uint8
 {
 	Devour,

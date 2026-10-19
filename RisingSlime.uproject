@@ -24,6 +24,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "NiagaraFluids",
+			"Enabled": true
+		},
+		{
 			"Name": "ChaosFlesh",
 			"Enabled": true
 		},
