@@ -7,70 +7,70 @@
 
 class UMaterialInterface;
 
-/** Spec §13 jelly settings. Length fields are meters (converted to cm in the solver). Soft-feel retune beyond phase-1 rubber defaults. */
+/** Spec §13 jelly settings. Length fields are meters (converted to cm in the solver). Soft contact squash retune. */
 USTRUCT(BlueprintType)
 struct FJellySettings
 {
 	GENERATED_BODY()
 
-	/** Softer than Unity 30 — less ping-pong rubber. */
+	/** Soft “물렁” springs — slow recovery, less rubber snap. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SpringStrength = 22.f;
+	float SpringStrength = 12.f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float Damping = 5.2f;
+	float Damping = 6.8f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float NeighborStrength = 7.5f;
+	float NeighborStrength = 4.5f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumDeformationM = 0.32f;
+	float MaximumDeformationM = 0.45f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumStretch = 1.75f;
+	float MaximumStretch = 1.85f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MovementDeformation = 1.45f;
+	float MovementDeformation = 1.55f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float RecoverySpeed = 0.85f;
+	float RecoverySpeed = 0.5f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SquashStrength = 1.35f;
+	float SquashStrength = 1.55f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float StretchStrength = 1.35f;
+	float StretchStrength = 1.4f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float CollisionDeformation = 0.85f;
+	float CollisionDeformation = 1.45f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxContactDeformationM = 0.08f;
+	float MaxContactDeformationM = 0.18f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxImpactDeformationM = 0.18f;
+	float MaxImpactDeformationM = 0.22f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactRadiusM = 0.2f;
+	float ContactRadiusM = 0.42f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactStrength = 1.1f;
+	float ContactStrength = 1.75f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float ContactFalloff = 1.f;
+	float ContactFalloff = 0.85f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundDeformationHeightM = 0.26f;
+	float GroundDeformationHeightM = 0.4f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundContactStrengthM = 0.075f;
+	float GroundContactStrengthM = 0.13f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundContactFalloff = 1.f;
+	float GroundContactFalloff = 0.9f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxGroundCompressionM = 0.085f;
+	float MaxGroundCompressionM = 0.15f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingImpactStrength = 0.02f;
+	float LandingImpactStrength = 0.028f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxLandingDeformationM = 0.16f;
+	float MaxLandingDeformationM = 0.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingVelocityThresholdMps = 1.2f;
+	float LandingVelocityThresholdMps = 1.0f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingBounceStrength = 1.15f;
+	float LandingBounceStrength = 1.2f;
 	/** Lower = longer visible landing wobble. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingRecoverySpeed = 9.5f;
+	float LandingRecoverySpeed = 7.5f;
 
 	/** Lightweight radial volume proxy (not Chaos Flesh). */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float VolumePreservation = 0.4f;
+	float VolumePreservation = 0.62f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float MaxRadialExpansionM = 0.055f;
+	float MaxRadialExpansionM = 0.1f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float MaxVerticalCompressionM = 0.14f;
+	float MaxVerticalCompressionM = 0.22f;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bContactDeformation = true;
@@ -82,6 +82,9 @@ struct FJellySettings
 	bool bVolumePreservation = true;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bRadialExpansion = true;
+	/** Probe WorldStatic / Dynamic / Pawn each jelly step for wall/floor/prey squash. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
+	bool bWorldContactProbe = true;
 };
 
 /**
@@ -103,6 +106,9 @@ public:
 
 	void ResetMotion();
 	void AddImpulse(const FVector& LocalPoint, const FVector& LocalDirection, float Magnitude, float Radius, float Squash, float Stretch);
+
+	/** Queue a contact dent in jelly mesh local space (PressureCm = inward displacement). */
+	void EnqueueContact(const FVector& LocalPoint, const FVector& LocalNormal, float PressureCm, float RadiusCm);
 
 	bool IsReady() const { return bReady; }
 	UProceduralMeshComponent* GetMesh() const { return Mesh; }
@@ -133,8 +139,8 @@ protected:
 	{
 		FVector LocalPoint = FVector::ZeroVector;
 		FVector LocalNormal = FVector::UpVector;
-		float Pressure = 0.f;
-		float Radius = 0.f;
+		float PressureCm = 0.f;
+		float RadiusCm = 0.f;
 	};
 
 	void BuildRestMesh();
@@ -142,6 +148,8 @@ protected:
 	void WriteMesh();
 	void ComputeNormals(TArray<FVector>& OutNormals) const;
 
+	void GatherWorldContacts(const FVector& WorldVelocityCms);
+	void ApplyQueuedContacts();
 	void BuildPose(const FVector& LocalVelocityCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);
 	void ApplyVolumePreservation();
@@ -152,6 +160,7 @@ protected:
 
 	static float SmoothStep(float T);
 	float MaxDeformCm() const { return Settings.MaximumDeformationM * 100.f; }
+	float RestRadiusCm() const { return 50.f; }
 
 	UPROPERTY()
 	TObjectPtr<UProceduralMeshComponent> Mesh;
@@ -182,4 +191,6 @@ protected:
 	bool bAscending = false;
 
 	FVector PrevWorldVelocityCms = FVector::ZeroVector;
+
+	static constexpr int32 MaxContactsPerStep = 10;
 };

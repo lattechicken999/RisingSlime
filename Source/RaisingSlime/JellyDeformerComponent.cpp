@@ -2,6 +2,9 @@
 #include "RaisingSlimeTypes.h"
 #include "Materials/MaterialInterface.h"
 #include "Async/ParallelFor.h"
+#include "Engine/World.h"
+#include "CollisionQueryParams.h"
+#include "CollisionShape.h"
 
 UJellyDeformerComponent::UJellyDeformerComponent()
 {
@@ -292,12 +295,179 @@ void UJellyDeformerComponent::BuildPose(const FVector& LocalVelocityCms)
 	ClampPose();
 }
 
+void UJellyDeformerComponent::EnqueueContact(const FVector& LocalPoint, const FVector& LocalNormal, float PressureCm, float RadiusCm)
+{
+	if (!bReady || PressureCm <= KINDA_SMALL_NUMBER || RadiusCm <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+	if (PendingContacts.Num() >= MaxContactsPerStep)
+	{
+		return;
+	}
+	FPendingContact C;
+	C.LocalPoint = LocalPoint;
+	C.LocalNormal = LocalNormal.GetSafeNormal();
+	C.PressureCm = FMath::Min(PressureCm, Settings.MaxContactDeformationM * 100.f);
+	C.RadiusCm = RadiusCm;
+	if (!C.LocalNormal.IsNearlyZero())
+	{
+		PendingContacts.Add(C);
+	}
+}
+
+void UJellyDeformerComponent::GatherWorldContacts(const FVector& WorldVelocityCms)
+{
+	PendingContacts.Reset();
+	if (!Settings.bContactDeformation || !Settings.bWorldContactProbe || !bReady || !Mesh || !GetWorld() || !GetOwner())
+	{
+		return;
+	}
+
+	const float WorldRadiusCm = RestRadiusCm() * BodyScale;
+	const FVector Center = Mesh->GetComponentLocation();
+	const FTransform MeshXf = Mesh->GetComponentTransform();
+	const float ProbeReach = WorldRadiusCm * 1.2f;
+	const float ProbeSphere = FMath::Clamp(WorldRadiusCm * 0.2f, 6.f, 18.f);
+	const float MaxPressCm = Settings.MaxContactDeformationM * 100.f;
+	const float ContactRadCm = Settings.ContactRadiusM * 100.f;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(JellyWorldContact), false, GetOwner());
+	Params.bReturnPhysicalMaterial = false;
+	FCollisionObjectQueryParams ObjQuery;
+	ObjQuery.AddObjectTypesToQuery(ECC_WorldStatic);
+	ObjQuery.AddObjectTypesToQuery(ECC_WorldDynamic);
+	ObjQuery.AddObjectTypesToQuery(ECC_PhysicsBody);
+	ObjQuery.AddObjectTypesToQuery(ECC_Pawn);
+	ObjQuery.AddObjectTypesToQuery(ECC_Vehicle);
+
+	TArray<FVector> Dirs;
+	Dirs.Reserve(14);
+	// Floor / ceiling extras (standing squash is also ApplyGround; this catches pads/ledges).
+	Dirs.Add(FVector(0.f, 0.f, -1.f));
+	Dirs.Add(FVector(0.f, 0.f, 1.f));
+	// Horizontal ring — walls.
+	for (int32 I = 0; I < 8; ++I)
+	{
+		const float Ang = static_cast<float>(I) * (UE_TWO_PI / 8.f);
+		Dirs.Add(FVector(FMath::Cos(Ang), FMath::Sin(Ang), 0.f));
+	}
+	// Mild downward diagonals for curb / rock contact.
+	for (int32 I = 0; I < 4; ++I)
+	{
+		const float Ang = static_cast<float>(I) * (UE_TWO_PI / 4.f) + 0.4f;
+		Dirs.Add(FVector(FMath::Cos(Ang), FMath::Sin(Ang), -0.55f).GetSafeNormal());
+	}
+	// Prefer travel direction so walking into a wall reads immediately.
+	FVector Travel = FVector(WorldVelocityCms.X, WorldVelocityCms.Y, 0.f);
+	if (Travel.SizeSquared() > 400.f) // >20 cm/s
+	{
+		Dirs.Insert(Travel.GetSafeNormal(), 0);
+	}
+
+	for (const FVector& WorldDir : Dirs)
+	{
+		if (PendingContacts.Num() >= MaxContactsPerStep)
+		{
+			break;
+		}
+		const FVector Dir = WorldDir.GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			continue;
+		}
+
+		FHitResult Hit;
+		const FVector Start = Center;
+		const FVector End = Center + Dir * ProbeReach;
+		if (!GetWorld()->SweepSingleByObjectType(
+			Hit, Start, End, FQuat::Identity, ObjQuery, FCollisionShape::MakeSphere(ProbeSphere), Params))
+		{
+			continue;
+		}
+		if (!Hit.bBlockingHit && !Hit.bStartPenetrating)
+		{
+			continue;
+		}
+		if (Hit.GetActor() == GetOwner())
+		{
+			continue;
+		}
+
+		const float Dist = FVector::Distance(Center, Hit.ImpactPoint);
+		float PenetrationCm = (WorldRadiusCm * 0.94f) - Dist;
+		if (Hit.bStartPenetrating)
+		{
+			PenetrationCm = FMath::Max(PenetrationCm, Hit.PenetrationDepth);
+		}
+		if (PenetrationCm < 1.5f)
+		{
+			continue;
+		}
+
+		const float PressCm = FMath::Clamp(PenetrationCm * Settings.ContactStrength * Settings.CollisionDeformation, 0.f, MaxPressCm);
+		const FVector LocalPoint = MeshXf.InverseTransformPosition(Hit.ImpactPoint);
+		const FVector LocalNormal = MeshXf.InverseTransformVectorNoScale(Hit.ImpactNormal).GetSafeNormal();
+		EnqueueContact(LocalPoint, LocalNormal, PressCm, ContactRadCm);
+	}
+}
+
+void UJellyDeformerComponent::ApplyQueuedContacts()
+{
+	if (!Settings.bContactDeformation || bAscending || ActiveContacts.Num() == 0)
+	{
+		return;
+	}
+
+	const float InvSqrt = 1.f / FMath::Sqrt(static_cast<float>(ActiveContacts.Num()));
+	for (const FPendingContact& C : ActiveContacts)
+	{
+		const FVector Dent = C.LocalNormal.GetSafeNormal();
+		if (Dent.IsNearlyZero())
+		{
+			continue;
+		}
+		const float PressCm = C.PressureCm * InvSqrt;
+		for (int32 I = 0; I < Rest.Num(); ++I)
+		{
+			const float Facing = FVector::DotProduct(Rest[I].GetSafeNormal(), -Dent);
+			if (Facing < 0.12f)
+			{
+				continue;
+			}
+			const float Dist = FVector::Dist(Rest[I], C.LocalPoint);
+			if (Dist > C.RadiusCm)
+			{
+				continue;
+			}
+			const float T = 1.f - Dist / C.RadiusCm;
+			float Inf = SmoothStep(T) * FMath::Clamp((Facing - 0.12f) / 0.7f, 0.f, 1.f);
+			if (Settings.ContactFalloff > 0.01f && Settings.ContactFalloff < 0.99f)
+			{
+				Inf = FMath::Pow(Inf, Settings.ContactFalloff);
+			}
+			else if (Settings.ContactFalloff > 1.01f)
+			{
+				Inf = FMath::Pow(Inf, Settings.ContactFalloff);
+			}
+			if (Inf < 0.001f)
+			{
+				continue;
+			}
+			Influence[I] = FMath::Max(Influence[I], Inf);
+			// Push verts along impact normal (into body) so surface flattens against the object.
+			Pose[I] += Dent * (PressCm * Inf);
+		}
+	}
+	ClampPose();
+}
+
 void UJellyDeformerComponent::ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps)
 {
 	const float MaxLand = Settings.MaxLandingDeformationM;
 	if (!Settings.bGroundContact || !bGrounded)
 	{
-		const float Pull = 1.f - FMath::Exp(-8.f * Dt);
+		const float Pull = 1.f - FMath::Exp(-6.f * Dt);
 		LandingPress = FMath::Lerp(LandingPress, 0.f, Pull);
 		LandingVelocity = FMath::Lerp(LandingVelocity, 0.f, Pull);
 		bWasGrounded = false;
@@ -314,20 +484,21 @@ void UJellyDeformerComponent::ApplyGround(float Dt, bool bGrounded, float Ground
 
 	{
 		const float Omega = FMath::Max(1.f, Settings.LandingRecoverySpeed);
-		const float Damping = 2.f * 0.42f * Omega;
+		const float Damping = 2.f * 0.48f * Omega;
 		const float Accel = -Omega * Omega * LandingPress - Damping * LandingVelocity;
 		LandingVelocity += Accel * Dt;
 		LandingPress += LandingVelocity * Dt;
 		LandingPress = FMath::Clamp(LandingPress, -MaxLand * 0.35f, MaxLand);
 	}
 
-	float CompressionM = FMath::Min(Settings.GroundContactStrengthM, Settings.MaxGroundCompressionM) + LandingPress;
+	// Steady floor sit squash (always-on while grounded) + landing pulse.
+	float CompressionM = Settings.GroundContactStrengthM + LandingPress;
 	const float Cap = Settings.MaxGroundCompressionM + MaxLand;
 	CompressionM = FMath::Clamp(CompressionM, -MaxLand * 0.35f, Cap);
 
 	const FVector Normal(0.f, 0.f, 1.f);
-	const float BandM = FMath::Min(Settings.GroundDeformationHeightM, 0.35f);
-	const float GroundZ = -50.f * 0.92f; // approx south extent in cm at rest
+	const float BandM = FMath::Max(Settings.GroundDeformationHeightM, 0.2f);
+	const float GroundZ = -RestRadiusCm() * 0.92f;
 
 	for (int32 I = 0; I < Rest.Num(); ++I)
 	{
@@ -338,7 +509,7 @@ void UJellyDeformerComponent::ApplyGround(float Dt, bool bGrounded, float Ground
 		}
 		const float T = 1.f - HeightM / BandM;
 		float Inf = SmoothStep(T);
-		if (Settings.GroundContactFalloff > 1.01f)
+		if (Settings.GroundContactFalloff > 0.01f && !FMath::IsNearlyEqual(Settings.GroundContactFalloff, 1.f))
 		{
 			Inf = FMath::Pow(Inf, Settings.GroundContactFalloff);
 		}
@@ -347,6 +518,7 @@ void UJellyDeformerComponent::ApplyGround(float Dt, bool bGrounded, float Ground
 			continue;
 		}
 		Influence[I] = FMath::Max(Influence[I], Inf);
+		// Lift bottom verts → flatten against floor.
 		Pose[I] += Normal * (CompressionM * Inf * 100.f);
 	}
 	ClampPose();
@@ -437,9 +609,9 @@ void UJellyDeformerComponent::StepSprings(float Dt)
 	TArray<FVector> Force;
 	Force.SetNumZeroed(Current.Num());
 
-	// Softer follow of pose: slightly under-damped feel without rubber snap.
+	// Soft follow of pose — low K + higher damp = 물렁 squash that settles slowly.
 	const float K = Settings.SpringStrength * Settings.RecoverySpeed;
-	const float Damp = Settings.Damping * (0.85f + 0.15f * Settings.RecoverySpeed);
+	const float Damp = Settings.Damping * (0.9f + 0.2f * (1.f - Settings.RecoverySpeed));
 	for (int32 I = 0; I < Current.Num(); ++I)
 	{
 		Force[I] += -K * (Current[I] - Pose[I]) - Damp * Velocity[I];
@@ -499,47 +671,12 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	const FVector LocalAcc = YawRot.UnrotateVector(WorldAccelCms);
 	bAscending = LocalVel.Z > 150.f;
 
+	GatherWorldContacts(WorldVelocityCms);
 	ActiveContacts = MoveTemp(PendingContacts);
 	PendingContacts.Reset();
 
 	BuildPose(LocalVel);
-
-	if (Settings.bContactDeformation && !bAscending)
-	{
-		const float InvSqrt = ActiveContacts.Num() > 0 ? (1.f / FMath::Sqrt(static_cast<float>(ActiveContacts.Num()))) : 1.f;
-		for (const FPendingContact& C : ActiveContacts)
-		{
-			const FVector Dent = C.LocalNormal.GetSafeNormal();
-			const float Press = C.Pressure * InvSqrt * Settings.CollisionDeformation * Settings.ContactStrength;
-			for (int32 I = 0; I < Rest.Num(); ++I)
-			{
-				const float Facing = FVector::DotProduct(Rest[I].GetSafeNormal(), -Dent);
-				if (Facing < 0.2f)
-				{
-					continue;
-				}
-				const float Dist = FVector::Dist(Rest[I], C.LocalPoint);
-				if (Dist > C.Radius)
-				{
-					continue;
-				}
-				const float T = 1.f - Dist / C.Radius;
-				float Inf = SmoothStep(T) * FMath::Clamp((Facing - 0.2f) / 0.65f, 0.f, 1.f);
-				if (Settings.ContactFalloff > 1.01f)
-				{
-					Inf = FMath::Pow(Inf, Settings.ContactFalloff);
-				}
-				if (Inf < 0.001f)
-				{
-					continue;
-				}
-				Influence[I] = FMath::Max(Influence[I], Inf);
-				Pose[I] += Dent * (Press * Inf);
-			}
-		}
-		ClampPose();
-	}
-
+	ApplyQueuedContacts();
 	ApplyGround(Dt, bGrounded, GroundImpactSpeedMps);
 	ApplyVolumePreservation();
 	ApplyInertia(LocalAcc);
