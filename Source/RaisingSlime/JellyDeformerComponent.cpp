@@ -277,16 +277,16 @@ void UJellyDeformerComponent::BuildPose(const FVector& LocalVelocityCms, const F
 	const float Ref = FMath::Max(1.f, Settings.JumpDeformRefSpeedMps);
 	const float JumpT = SmoothStep(FMath::Clamp(FMath::Abs(V.Z) / Ref, 0.f, 1.f));
 
-	// Viscous liquid jump: mild height change + volume-conserving radius (never pinch through zero).
+	// Medium vertical elongate + volume-conserving radius (RadMul≈0.8 at 1.55× — no thin neck).
 	float VertMul = 1.f;
 	if (V.Z > 0.35f)
 	{
 		VertMul = 1.f + JumpT * Settings.JumpRiseStretch;
-		// Takeoff impulse: brief flatten before compact rise (not taffy launch).
+		// Brief takeoff flatten, then allow the medium rise stretch.
 		if (A.Z > 8.f)
 		{
 			const float FlatT = SmoothStep(FMath::Clamp((A.Z - 8.f) / 25.f, 0.f, 1.f));
-			VertMul = FMath::Lerp(VertMul, 1.f - Settings.JumpTakeoffFlatten, FlatT);
+			VertMul = FMath::Lerp(VertMul, 1.f - Settings.JumpTakeoffFlatten, FlatT * 0.65f);
 		}
 	}
 	else if (V.Z < -0.35f)

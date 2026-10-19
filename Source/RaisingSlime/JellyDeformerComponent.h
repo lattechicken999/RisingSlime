@@ -35,9 +35,9 @@ struct FJellySettings
 	float NeighborStrength = 1.4f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float MaximumDeformationM = 0.5f;
-	/** Hard cap on height scale vs rest (prevents taffy/hourglass). */
-	UPROPERTY(EditAnywhere, Category = "Jelly", meta = (ClampMin = "1.05", ClampMax = "1.5"))
-	float MaximumStretch = 1.22f;
+	/** Hard cap on height scale vs rest (medium elongate; volume rad keeps waist). */
+	UPROPERTY(EditAnywhere, Category = "Jelly", meta = (ClampMin = "1.05", ClampMax = "1.8"))
+	float MaximumStretch = 1.55f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float MovementDeformation = 1.55f;
 	/** Scales residual spring K; keep low for languid ooze. */
@@ -48,15 +48,15 @@ struct FJellySettings
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float StretchStrength = 1.35f;
 
-	/** Max +height while rising (fraction of rest). Mild blob, not spaghetti. */
-	UPROPERTY(EditAnywhere, Category = "Jelly|Jump", meta = (ClampMin = "0.05", ClampMax = "0.4"))
-	float JumpRiseStretch = 0.16f;
+	/** Max +height while rising (fraction of rest). Medium stretch, not needle. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Jump", meta = (ClampMin = "0.05", ClampMax = "0.7"))
+	float JumpRiseStretch = 0.55f;
 	/** Max height loss while falling (fraction). */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Jump", meta = (ClampMin = "0.05", ClampMax = "0.4"))
-	float JumpFallSquash = 0.18f;
+	float JumpFallSquash = 0.2f;
 	/** Brief flatten on takeoff impulse (fraction height loss). */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Jump", meta = (ClampMin = "0", ClampMax = "0.25"))
-	float JumpTakeoffFlatten = 0.1f;
+	float JumpTakeoffFlatten = 0.08f;
 	/** |Vz| (m/s) that maps to full jump deform. */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Jump")
 	float JumpDeformRefSpeedMps = 7.2f;
