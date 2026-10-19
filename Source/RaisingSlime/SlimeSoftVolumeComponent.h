@@ -9,6 +9,7 @@ class ASlimePawn;
 /**
  * Soft-volume collision: overlapping spheres that resolve WorldStatic individually
  * so thin poles can sit between/under particles instead of pedestalizing one hard sphere.
+ * Per-particle support heights allow the body to drape across obstacle edges.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeSoftVolumeComponent : public UActorComponent
@@ -44,15 +45,33 @@ public:
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
 	bool bDebugDraw = true;
 
-	/** Viscous pull toward formation (1/s). High = thick goo. */
+	/** Viscous pull toward formation XY (1/s). High = thick goo. */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity")
 	float FormationCreepRate = 6.5f;
+
+	/**
+	 * How strongly formation pulls in Z (0 = free height / drape).
+	 * Keep low so particles on a rock stay high while floor-side stay low.
+	 */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity", meta = (ClampMin = "0", ClampMax = "1"))
+	float FormationVerticalScale = 0.12f;
 
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity")
 	float VelocityDamping = 14.f;
 
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity")
 	float NeighborSoftness = 0.35f;
+
+	/** Neighbor distance correction scale on Z (low → preserve slope). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Viscosity", meta = (ClampMin = "0", ClampMax = "1"))
+	float NeighborVerticalScale = 0.18f;
+
+	/** Creep rate onto per-particle support height (1/s). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Support")
+	float SupportSettleRate = 10.f;
+
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Support")
+	float SupportProbeExtraCm = 14.f;
 
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
 	float GroundNormalZ = 0.45f;
@@ -65,12 +84,17 @@ protected:
 		FVector Velocity = FVector::ZeroVector;
 		float Radius = 20.f;
 		float RestDistToCore = 0.f;
+		/** Desired sphere-center when sitting on local support. */
+		FVector SupportCenter = FVector::ZeroVector;
+		bool bHasSupport = false;
 	};
 
 	void BuildDefaultLayout(float BodyRadiusCm);
 	FVector BodyCenterFromActor(const AActor* Actor) const;
 	bool SweepParticle(AActor* Ignore, const FVector& Start, const FVector& End, float Radius, FHitResult& OutHit) const;
+	void ProbeSupports(AActor* Ignore, bool& bOutGrounded);
 	void ApplyViscosity(float Dt, const FQuat& YawQ, const FVector& BodyCenter);
+	void SettleToSupports(float Dt);
 	void SyncActorFromParticles(ASlimePawn* Pawn);
 
 	TArray<FParticle> Particles;

@@ -43,7 +43,12 @@ void USlimeSoftVolumeComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 	for (int32 I = 0; I < Particles.Num(); ++I)
 	{
 		const FParticle& P = Particles[I];
-		DrawDebugSphere(GetWorld(), P.WorldPos, P.Radius, 10, FColor(40, 220, 120), false, -1.f, 0, 1.2f);
+		const FColor Color = P.bHasSupport ? FColor(40, 220, 120) : FColor(80, 160, 255);
+		DrawDebugSphere(GetWorld(), P.WorldPos, P.Radius, 10, Color, false, -1.f, 0, 1.2f);
+		if (P.bHasSupport)
+		{
+			DrawDebugLine(GetWorld(), P.WorldPos, P.SupportCenter, FColor(255, 200, 40), false, -1.f, 0, 1.5f);
+		}
 	}
 }
 
@@ -70,7 +75,7 @@ void USlimeSoftVolumeComponent::BuildDefaultLayout(float InBodyRadiusCm)
 		const int32 N = 6;
 		const float RingR = BodyRadiusCm * 0.68f;
 		const float Z = -BodyRadiusCm * 0.42f;
-		const float Rad = BodyRadiusCm * 0.26f; // gap ≈ chord - 2r > ~7cm at R=50
+		const float Rad = BodyRadiusCm * 0.26f;
 		for (int32 I = 0; I < N; ++I)
 		{
 			const float A = (2.f * PI * I) / N;
@@ -148,6 +153,8 @@ void USlimeSoftVolumeComponent::ResetToActor()
 	{
 		P.WorldPos = Center + YawQ.RotateVector(P.RestLocal);
 		P.Velocity = FVector::ZeroVector;
+		P.bHasSupport = false;
+		P.SupportCenter = P.WorldPos;
 	}
 }
 
@@ -193,24 +200,92 @@ bool USlimeSoftVolumeComponent::SweepParticle(AActor* Ignore, const FVector& Sta
 		FCollisionShape::MakeSphere(Radius), Params);
 }
 
+void USlimeSoftVolumeComponent::ProbeSupports(AActor* Ignore, bool& bOutGrounded)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SlimeSoftSupport), false, Ignore);
+	for (FParticle& P : Particles)
+	{
+		P.bHasSupport = false;
+		// Start slightly above so we still find a surface when already sitting on it.
+		const FVector Start = P.WorldPos + FVector(0.f, 0.f, FMath::Max(2.f, P.Radius * 0.15f));
+		const FVector End = P.WorldPos - FVector(0.f, 0.f, P.Radius + SupportProbeExtraCm);
+		FHitResult Hit;
+		if (!World->SweepSingleByChannel(
+			Hit, Start, End, FQuat::Identity, ECC_WorldStatic,
+			FCollisionShape::MakeSphere(P.Radius * 0.92f), Params))
+		{
+			continue;
+		}
+		if (Hit.ImpactNormal.Z < GroundNormalZ)
+		{
+			// Wall / thin-pole side — not a sit surface (keep pierce/settle).
+			continue;
+		}
+
+		// Sphere center that rests on this surface.
+		P.SupportCenter = Hit.ImpactPoint + Hit.ImpactNormal * P.Radius;
+		P.bHasSupport = true;
+		bOutGrounded = true;
+	}
+}
+
 void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, const FVector& BodyCenter)
 {
 	const float Creep = 1.f - FMath::Exp(-FMath::Max(0.1f, FormationCreepRate) * Dt);
 	const float Damp = FMath::Exp(-FMath::Max(0.1f, VelocityDamping) * Dt);
+	const float VertScale = FMath::Clamp(FormationVerticalScale, 0.f, 1.f);
 
 	for (FParticle& P : Particles)
 	{
-		const FVector Target = BodyCenter + YawQ.RotateVector(P.RestLocal - RestComLocal);
-		const FVector ToTarget = Target - P.WorldPos;
-		// Overdamped: velocity toward formation, then hard kill — no spring bounce.
+		const FVector Formation = BodyCenter + YawQ.RotateVector(P.RestLocal - RestComLocal);
+		FVector Target = Formation;
+
+		// Supported particles: XY may ooze toward formation, Z locked to local support.
+		if (P.bHasSupport)
+		{
+			Target.X = Formation.X;
+			Target.Y = Formation.Y;
+			Target.Z = P.SupportCenter.Z;
+		}
+		else
+		{
+			// Free particles: strong XY formation, weak Z (allows drape / hang).
+			Target.Z = FMath::Lerp(P.WorldPos.Z, Formation.Z, VertScale);
+		}
+
+		FVector ToTarget = Target - P.WorldPos;
+		// Soften vertical pull further when unsupported so COM rise doesn't lift floor side.
+		if (!P.bHasSupport)
+		{
+			ToTarget.Z *= VertScale;
+		}
+
 		P.Velocity = FMath::Lerp(P.Velocity, ToTarget * FormationCreepRate, Creep);
 		P.Velocity *= Damp;
 		P.WorldPos += P.Velocity * Dt;
-		P.WorldPos = FMath::Lerp(P.WorldPos, Target, Creep * 0.55f);
+
+		FVector BlendTarget = Target;
+		if (!P.bHasSupport)
+		{
+			BlendTarget.Z = P.WorldPos.Z; // don't snap Z via lerp
+		}
+		P.WorldPos = FMath::Lerp(P.WorldPos, BlendTarget, Creep * 0.55f);
+		if (P.bHasSupport)
+		{
+			// Keep Z glued toward support after XY blend.
+			P.WorldPos.Z = FMath::Lerp(P.WorldPos.Z, P.SupportCenter.Z, Creep * 0.85f);
+		}
 	}
 
-	// Soft neighbor distance constraints (viscous, not oscillatory).
+	// Soft neighbor distance — XY strong, Z weak so slopes survive.
 	const float Soft = NeighborSoftness * Creep;
+	const float VertN = FMath::Clamp(NeighborVerticalScale, 0.f, 1.f);
 	if (Soft > KINDA_SMALL_NUMBER)
 	{
 		for (int32 I = 0; I < Particles.Num(); ++I)
@@ -224,18 +299,39 @@ void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, cons
 				{
 					continue;
 				}
-				// Only constrain pairs that were neighbors in rest.
 				if (RestDist > (Particles[I].Radius + Particles[J].Radius) * 1.35f)
 				{
 					continue;
 				}
 				const FVector N = Delta / Cur;
 				const float Err = Cur - RestDist;
-				const FVector Corr = N * (Err * Soft * 0.5f);
+				FVector Corr = N * (Err * Soft * 0.5f);
+				Corr.Z *= VertN;
 				Particles[I].WorldPos += Corr;
 				Particles[J].WorldPos -= Corr;
 			}
 		}
+	}
+}
+
+void USlimeSoftVolumeComponent::SettleToSupports(float Dt)
+{
+	const float Alpha = 1.f - FMath::Exp(-FMath::Max(0.1f, SupportSettleRate) * Dt);
+	for (FParticle& P : Particles)
+	{
+		if (!P.bHasSupport)
+		{
+			continue;
+		}
+		// Height from local support; light XY stick so we don't slide off slopes instantly.
+		P.WorldPos.Z = FMath::Lerp(P.WorldPos.Z, P.SupportCenter.Z, Alpha);
+		P.WorldPos.X = FMath::Lerp(P.WorldPos.X, P.SupportCenter.X, Alpha * 0.2f);
+		P.WorldPos.Y = FMath::Lerp(P.WorldPos.Y, P.SupportCenter.Y, Alpha * 0.2f);
+		if (P.Velocity.Z < 0.f)
+		{
+			P.Velocity.Z = 0.f;
+		}
+		P.Velocity *= (1.f - Alpha * 0.5f);
 	}
 }
 
@@ -270,7 +366,9 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	const AActor* Owner = GetOwner();
 	const FQuat YawQ = FRotator(0.f, Owner ? Owner->GetActorRotation().Yaw : 0.f, 0.f).Quaternion();
 	const FQuat InvYaw = YawQ.Inverse();
-	const FVector Center = GetBodyCenterWorld();
+	// Rest frame = actor body center (not particle COM) so world Z drape shows on mesh
+	// even when COM sits between floor and obstacle heights.
+	const FVector Center = BodyCenterFromActor(Owner);
 
 	FVector Acc = FVector::ZeroVector;
 	float WSum = 0.f;
@@ -322,7 +420,6 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 				const FVector Dir = DesiredDelta.GetSafeNormal();
 				P.WorldPos = Start + Dir * Travel;
 
-				// Slide leftover along the hit plane (viscous slide, no bounce).
 				const FVector Remain = DesiredDelta * (1.f - Hit.Time);
 				FVector Slide = FVector::VectorPlaneProject(Remain, Hit.ImpactNormal);
 				if (Slide.SizeSquared() > 1.f)
@@ -341,11 +438,6 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 						P.WorldPos += Slide;
 					}
 				}
-
-				if (Hit.ImpactNormal.Z > GroundNormalZ)
-				{
-					bOutGrounded = true;
-				}
 			}
 		}
 		else
@@ -354,11 +446,31 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 		}
 	}
 
-	// 2) Viscous formation around current COM (ooze back together).
+	// 2) Per-particle support heights (rock vs floor) — enables edge drape.
+	ProbeSupports(Pawn, bOutGrounded);
+
+	// 3) Viscous formation: XY together, Z mostly free / support-driven.
 	FVector Com = GetBodyCenterWorld();
+	// Planar-biased COM for formation so a raised rock side doesn't yank floor XY as hard.
+	{
+		FVector PlanarCom = FVector::ZeroVector;
+		int32 N = 0;
+		for (const FParticle& P : Particles)
+		{
+			PlanarCom += P.WorldPos;
+			++N;
+		}
+		if (N > 0)
+		{
+			Com = PlanarCom / N;
+		}
+	}
 	ApplyViscosity(Dt, YawQ, Com);
 
-	// 3) Re-resolve after viscosity (particles may have crept into geometry).
+	// 4) Creep onto local supports (viscous, no bounce).
+	SettleToSupports(Dt);
+
+	// 5) Re-resolve after viscosity (particles may have crept into geometry).
 	for (FParticle& P : Particles)
 	{
 		FHitResult Hit;
@@ -373,31 +485,10 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 		}
 	}
 
-	// 4) Ground probe per lower particle (supports when only some spheres sit on floor).
-	{
-		FCollisionQueryParams Params(SCENE_QUERY_STAT(SlimeSoftGround), false, Pawn);
-		for (const FParticle& P : Particles)
-		{
-			if (P.RestLocal.Z > -BodyRadiusCm * 0.15f)
-			{
-				continue;
-			}
-			FHitResult GHit;
-			const FVector End = P.WorldPos - FVector(0.f, 0.f, P.Radius + 10.f);
-			if (GetWorld() && GetWorld()->SweepSingleByChannel(
-				GHit, P.WorldPos, End, FQuat::Identity, ECC_WorldStatic,
-				FCollisionShape::MakeSphere(P.Radius * 0.92f), Params))
-			{
-				if (GHit.ImpactNormal.Z > GroundNormalZ)
-				{
-					bOutGrounded = true;
-					break;
-				}
-			}
-		}
-	}
+	// 6) Refresh supports after depen / settle so grounded flag stays accurate.
+	ProbeSupports(Pawn, bOutGrounded);
 
-	// 5) Actor follows particle COM — if bottom spheres settle beside a pole, whole body drops.
+	// 7) Actor follows particle COM (mid-height when half-on rock — particles keep local Z).
 	SyncActorFromParticles(Pawn);
 	return true;
 }
