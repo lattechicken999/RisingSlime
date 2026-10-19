@@ -4,7 +4,11 @@
 #include "ChaosFlesh/FleshComponent.h"
 #include "ChaosFlesh/FleshAsset.h"
 #include "ChaosFlesh/ChaosDeformableSolverActor.h"
+#include "ChaosFlesh/ChaosDeformableSolverComponent.h"
 #include "ChaosFlesh/ChaosDeformableTetrahedralComponent.h"
+#include "ChaosFlesh/ChaosFleshCollectionFacade.h"
+#include "ChaosFlesh/FleshCollection.h"
+#include "Components/SceneComponent.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 
@@ -17,6 +21,8 @@ USlimeFleshExperimentComponent::USlimeFleshExperimentComponent()
 void USlimeFleshExperimentComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	// Always ensure jelly is visible before attempting Flesh (empty shells used to hide it).
+	SetJellyVisible(true);
 	if (bEnableFleshExperiment)
 	{
 		TryStartFlesh();
@@ -55,6 +61,69 @@ UFleshAsset* USlimeFleshExperimentComponent::LoadFleshAsset() const
 	return Cast<UFleshAsset>(FleshAssetPath.TryLoad());
 }
 
+bool USlimeFleshExperimentComponent::HasTetrahedralRestCollection(const UFleshAsset* Asset) const
+{
+	if (!Asset)
+	{
+		return false;
+	}
+	// UFleshAsset always constructs an empty FFleshCollection — SharedPtr IsValid is NOT enough.
+	const TSharedPtr<const FFleshCollection> Collection = Asset->GetFleshCollection();
+	if (!Collection.IsValid())
+	{
+		return false;
+	}
+	const Chaos::FFleshCollectionFacade Facade(*Collection);
+	return Facade.IsTetrahedronValid() && Facade.NumVertices() > 0;
+}
+
+void USlimeFleshExperimentComponent::SetJellyVisible(bool bVisible) const
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+	if (UJellyDeformerComponent* Jelly = Owner->FindComponentByClass<UJellyDeformerComponent>())
+	{
+		if (UProceduralMeshComponent* Mesh = Jelly->GetMesh())
+		{
+			Mesh->SetVisibility(bVisible);
+			Mesh->SetHiddenInGame(!bVisible);
+		}
+	}
+}
+
+void USlimeFleshExperimentComponent::MakeFleshActorsMovable() const
+{
+	auto MakeMovable = [](AActor* Actor)
+	{
+		if (!Actor)
+		{
+			return;
+		}
+		TInlineComponentArray<USceneComponent*> SceneComps(Actor);
+		for (USceneComponent* Comp : SceneComps)
+		{
+			if (Comp && Comp->Mobility != EComponentMobility::Movable)
+			{
+				Comp->SetMobility(EComponentMobility::Movable);
+			}
+		}
+	};
+
+	MakeMovable(SolverActor);
+	MakeMovable(FleshActor);
+
+	if (SolverActor)
+	{
+		if (UDeformableSolverComponent* SolverComp = SolverActor->GetDeformableSolverComponent())
+		{
+			SolverComp->SetMobility(EComponentMobility::Movable);
+		}
+	}
+}
+
 void USlimeFleshExperimentComponent::TryStartFlesh()
 {
 	if (bAttempted)
@@ -71,7 +140,6 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 	}
 
 	CachedFleshAsset = LoadFleshAsset();
-	const bool bHasCollection = CachedFleshAsset && CachedFleshAsset->GetFleshCollection().IsValid();
 	if (!CachedFleshAsset)
 	{
 		UE_LOG(LogTemp, Display,
@@ -81,17 +149,19 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 			GEngine->AddOnScreenDebugMessage(INDEX_NONE, 6.f, FColor::Orange,
 				TEXT("SlimeFlesh: asset missing — jelly remains (see Output Log)"));
 		}
+		SetJellyVisible(true);
 		return;
 	}
-	if (!bHasCollection)
+	if (!HasTetrahedralRestCollection(CachedFleshAsset))
 	{
 		UE_LOG(LogTemp, Display,
-			TEXT("SlimeFlesh: FA_SlimeBody loaded but RestCollection empty — finish Dataflow tetmeshing. Spring jelly stays primary."));
+			TEXT("SlimeFlesh: FA_SlimeBody RestCollection empty/no tetrahedra — finish Dataflow tetmeshing. Spring jelly stays primary."));
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(INDEX_NONE, 6.f, FColor::Orange,
 				TEXT("SlimeFlesh: empty collection — jelly remains"));
 		}
+		SetJellyVisible(true);
 		return;
 	}
 
@@ -105,8 +175,12 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("SlimeFlesh: failed to spawn solver/flesh actors"));
 		ShutdownFlesh();
+		SetJellyVisible(true);
 		return;
 	}
+
+	// Engine defaults DeformableSolver root to Static; slime pawns move every frame.
+	MakeFleshActorsMovable();
 
 	FleshActor->AttachToActor(Owner, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 	FleshActor->GetFleshComponent()->SetRestCollection(CachedFleshAsset);
@@ -127,14 +201,13 @@ void USlimeFleshExperimentComponent::TryStartFlesh()
 
 	if (bHideJellyWhenFleshActive)
 	{
-		if (UJellyDeformerComponent* Jelly = Owner->FindComponentByClass<UJellyDeformerComponent>())
-		{
-			if (UProceduralMeshComponent* Mesh = Jelly->GetMesh())
-			{
-				Mesh->SetVisibility(false);
-				Mesh->SetHiddenInGame(true);
-			}
-		}
+		SetJellyVisible(false);
+		bHidJelly = true;
+	}
+	else
+	{
+		SetJellyVisible(true);
+		bHidJelly = false;
 	}
 
 	if (GEngine)
@@ -155,6 +228,11 @@ void USlimeFleshExperimentComponent::ShutdownFlesh()
 	{
 		SolverActor->Destroy();
 		SolverActor = nullptr;
+	}
+	if (bHidJelly)
+	{
+		SetJellyVisible(true);
+		bHidJelly = false;
 	}
 }
 

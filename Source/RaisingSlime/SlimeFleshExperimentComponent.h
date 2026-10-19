@@ -11,7 +11,8 @@ class UJellyDeformerComponent;
 
 /**
  * Spec §13 Chaos Flesh experiment scaffold.
- * Does not replace gameplay collision / spring jelly until a valid FleshAsset exists.
+ * Does not replace gameplay collision / spring jelly until a valid FleshAsset
+ * with tetrahedra exists. Empty FA_SlimeBody shells must leave jelly visible.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeFleshExperimentComponent : public UActorComponent
@@ -32,9 +33,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Flesh")
 	FSoftObjectPath FleshAssetPath = FSoftObjectPath(TEXT("/Game/Flesh/FA_SlimeBody.FA_SlimeBody"));
 
-	/** When Flesh rest collection is valid, hide procedural jelly mesh. */
+	/**
+	 * Hide procedural jelly only when Flesh tet sim is actually running.
+	 * Default false: empty RestCollection shells must never blank the slime body.
+	 */
 	UPROPERTY(EditAnywhere, Category = "Flesh")
-	bool bHideJellyWhenFleshActive = true;
+	bool bHideJellyWhenFleshActive = false;
 
 	UPROPERTY(EditAnywhere, Category = "Flesh")
 	float IncompressibilityMultiplier = 1.f;
@@ -45,6 +49,9 @@ protected:
 	void TryStartFlesh();
 	void ShutdownFlesh();
 	void SyncTransformToOwner();
+	void SetJellyVisible(bool bVisible) const;
+	void MakeFleshActorsMovable() const;
+	bool HasTetrahedralRestCollection(const UFleshAsset* Asset) const;
 	UFleshAsset* LoadFleshAsset() const;
 
 	UPROPERTY()
@@ -58,4 +65,5 @@ protected:
 
 	bool bFleshActive = false;
 	bool bAttempted = false;
+	bool bHidJelly = false;
 };
