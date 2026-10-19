@@ -16,7 +16,8 @@ public class RaisingSlime : ModuleRules
 			"UMG",
 			"Slate",
 			"SlateCore",
-			"ProceduralMeshComponent"
+			"ProceduralMeshComponent",
+			"Niagara"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

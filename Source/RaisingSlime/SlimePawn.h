@@ -58,6 +58,9 @@ public:
 	void TeleportToNest(const FTransform& NestTransform);
 	void TakeDamageAmount(float Amount);
 	void AddImpact(float Amount);
+	void PlayDevourSplash(const FVector& AtLocation);
+	void PlaySpitSplash();
+	void PlayDeathSplash();
 
 	float GetBodySize() const;
 

@@ -167,6 +167,10 @@ void AExpeditionDirector::Spit(ETraitId Trait)
 	}
 
 	Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *TraitText::Name(Trait));
+	if (Slime)
+	{
+		Slime->PlaySpitSplash();
+	}
 }
 
 void AExpeditionDirector::Settle()
@@ -196,6 +200,11 @@ void AExpeditionDirector::Settle()
 
 void AExpeditionDirector::Die()
 {
+	if (Slime)
+	{
+		Slime->PlayDeathSplash();
+	}
+
 	RunMass = 0.f;
 	Unstable.Reset();
 	if (!Confirmed.Contains(Active))

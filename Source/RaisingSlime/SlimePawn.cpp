@@ -6,6 +6,7 @@
 #include "SlimeShot.h"
 #include "SlimeMovementComponent.h"
 #include "JellyDeformerComponent.h"
+#include "SlimeVfx.h"
 #include "RaisingSlimePlayerController.h"
 #include "RaisingSlimeHud.h"
 #include "Components/SphereComponent.h"
@@ -544,6 +545,22 @@ void ASlimePawn::RefreshBody()
 void ASlimePawn::NotifyAte()
 {
 	AddImpact(0.16f);
+	PlayDevourSplash(GetActorLocation());
+}
+
+void ASlimePawn::PlayDevourSplash(const FVector& AtLocation)
+{
+	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Devour, AtLocation, GetBodySize());
+}
+
+void ASlimePawn::PlaySpitSplash()
+{
+	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Spit, GetActorLocation(), GetBodySize());
+}
+
+void ASlimePawn::PlayDeathSplash()
+{
+	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Death, GetActorLocation(), GetBodySize() * 1.15f);
 }
 
 void ASlimePawn::AddImpact(float Amount)
