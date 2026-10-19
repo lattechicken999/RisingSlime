@@ -7,6 +7,7 @@
 #include "SlimeMovementComponent.h"
 #include "JellyDeformerComponent.h"
 #include "SlimeSoftVolumeComponent.h"
+#include "SlimeGutContentComponent.h"
 #include "SlimeFleshExperimentComponent.h"
 #include "SlimeVfx.h"
 #include "RaisingSlimePlayerController.h"
@@ -72,6 +73,7 @@ ASlimePawn::ASlimePawn()
 	Movement = CreateDefaultSubobject<USlimeMovementComponent>(TEXT("Movement"));
 	Jelly = CreateDefaultSubobject<UJellyDeformerComponent>(TEXT("Jelly"));
 	SoftVolume = CreateDefaultSubobject<USlimeSoftVolumeComponent>(TEXT("SoftVolume"));
+	GutContent = CreateDefaultSubobject<USlimeGutContentComponent>(TEXT("GutContent"));
 	FleshExperiment = CreateDefaultSubobject<USlimeFleshExperimentComponent>(TEXT("FleshExperiment"));
 }
 
@@ -564,13 +566,31 @@ void ASlimePawn::RefreshBody()
 
 void ASlimePawn::NotifyAte()
 {
-	AddImpact(0.16f);
+	AddImpact(0.12f);
+	// Primary devour read is gut swallow + growth; Fluids splash is subtle ooze only.
 	PlayDevourSplash(GetActorLocation());
 }
 
 void ASlimePawn::PlayDevourSplash(const FVector& AtLocation)
 {
-	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Devour, AtLocation, GetBodySize());
+	const float Subtle = FMath::Clamp(GetBodySize() * 0.22f, 0.2f, 0.4f);
+	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Devour, AtLocation, Subtle);
+}
+
+void ASlimePawn::BeginGutDissolve()
+{
+	if (GutContent)
+	{
+		GutContent->BeginDissolveAll();
+	}
+}
+
+void ASlimePawn::ClearGutContent()
+{
+	if (GutContent)
+	{
+		GutContent->ClearImmediate();
+	}
 }
 
 void ASlimePawn::PlaySpitSplash()
@@ -605,6 +625,7 @@ void ASlimePawn::Recover()
 	{
 		SoftVolume->ResetToActor();
 	}
+	// Keep dissolving gut visuals if settle started melt; clear only if empty/done next tick.
 }
 
 void ASlimePawn::TeleportToNest(const FTransform& NestTransform)
@@ -657,7 +678,9 @@ float ASlimePawn::GetBodySize() const
 {
 	AExpeditionDirector* Director = FindDirector();
 	const float Mass = Director ? Director->GetTotalMass() : 0.f;
-	return FMath::Clamp(1.15f + Mass * 0.05f, 1.15f, 3.2f);
+	// Stronger mass→size so swallowed volume reads; gut swell is a short overshoot.
+	const float Swell = GutContent ? GutContent->GetSwallowSwellBonus() : 0.f;
+	return FMath::Clamp(1.15f + Mass * 0.085f + Swell, 1.15f, 3.4f);
 }
 
 float ASlimePawn::ReachMeters() const

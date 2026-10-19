@@ -11,6 +11,7 @@ class UCameraComponent;
 class USlimeMovementComponent;
 class UJellyDeformerComponent;
 class USlimeSoftVolumeComponent;
+class USlimeGutContentComponent;
 class USlimeFleshExperimentComponent;
 class UMaterialInterface;
 class AExpeditionDirector;
@@ -38,6 +39,11 @@ public:
 
 	USlimeMovementComponent* GetSlimeMovement() const { return Movement; }
 	USlimeSoftVolumeComponent* GetSoftVolume() const { return SoftVolume; }
+	USlimeGutContentComponent* GetGutContent() const { return GutContent; }
+
+	/** Begin melting swallowed proxies (settle / death). */
+	void BeginGutDissolve();
+	void ClearGutContent();
 
 	UFUNCTION(BlueprintCallable, Category = "Slime")
 	float GetHp() const { return Hp; }
@@ -112,6 +118,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<USlimeSoftVolumeComponent> SoftVolume;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
+	TObjectPtr<USlimeGutContentComponent> GutContent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<USlimeFleshExperimentComponent> FleshExperiment;

@@ -1,6 +1,7 @@
 #include "ExpeditionDirector.h"
 #include "Devourable.h"
 #include "SlimePawn.h"
+#include "SlimeGutContentComponent.h"
 #include "Kismet/GameplayStatics.h"
 
 AExpeditionDirector::AExpeditionDirector()
@@ -100,6 +101,11 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 			FMath::RoundToInt(Chance * 100.f));
 	}
 
+	// Gut proxy first (while prey mesh still valid), then hide world prey.
+	if (Slime && Slime->GetGutContent())
+	{
+		Slime->GetGutContent()->Swallow(Prey);
+	}
 	Prey->Consume();
 	if (Slime)
 	{
@@ -186,6 +192,11 @@ void AExpeditionDirector::Settle()
 		Active = Owned.Num() > 0 ? Owned[0] : ETraitId::None;
 	}
 
+	// Digestion complete: melt gut contents, then restore world prey / nest.
+	if (Slime)
+	{
+		Slime->BeginGutDissolve();
+	}
 	ResetWorld();
 	if (Slime)
 	{
@@ -203,6 +214,7 @@ void AExpeditionDirector::Die()
 	if (Slime)
 	{
 		Slime->PlayDeathSplash();
+		Slime->ClearGutContent();
 	}
 
 	RunMass = 0.f;
