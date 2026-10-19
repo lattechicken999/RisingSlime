@@ -8,7 +8,7 @@
 class UMaterialInterface;
 
 /**
- * Viscous spring jelly — fluid-like traits without Niagara Fluids.
+ * Viscous liquid body (not bouncy jelly) — thick goo without Niagara Fluids.
  * Length fields are meters unless named *Cm.
  */
 USTRUCT(BlueprintType)
@@ -16,79 +16,94 @@ struct FJellySettings
 {
 	GENERATED_BODY()
 
-	/** Soft / viscous springs. */
+	/**
+	 * Weak restoring force. Keep tiny — shape returns by viscous creep, not snap.
+	 * Effective K = SpringStrength * RecoverySpeed.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Viscosity")
+	float SpringStrength = 2.2f;
+	/** Velocity kill (overdamped). Aim ≫ 2*sqrt(K). */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Viscosity")
+	float Damping = 16.f;
+	/** ζ≥1 overdamps residual spring; 2+ reads as thick liquid. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Viscosity")
+	float DampingRatio = 2.4f;
+	/** Exponential creep rate toward pose (1/s). Primary recovery path. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Viscosity")
+	float ViscosityCreepRate = 2.8f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Viscosity")
+	float NeighborStrength = 1.4f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SpringStrength = 8.5f;
+	float MaximumDeformationM = 0.5f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float Damping = 8.2f;
+	float MaximumStretch = 2.0f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float NeighborStrength = 3.6f;
+	float MovementDeformation = 1.55f;
+	/** Scales residual spring K; keep low for languid ooze. */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Viscosity")
+	float RecoverySpeed = 0.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumDeformationM = 0.48f;
+	float SquashStrength = 1.7f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaximumStretch = 1.9f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MovementDeformation = 1.7f;
-	/** Lower = slower goo recovery. */
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float RecoverySpeed = 0.38f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float SquashStrength = 1.65f;
-	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float StretchStrength = 1.5f;
+	float StretchStrength = 1.35f;
 
-	/** Contact / flow pressure. */
+	/** Contact / flow pressure — stick then ooze. */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float CollisionDeformation = 1.15f;
+	float CollisionDeformation = 1.05f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float MaxContactDeformationM = 0.2f;
+	float MaxContactDeformationM = 0.22f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float ContactRadiusM = 0.48f;
+	float ContactRadiusM = 0.5f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float ContactStrength = 1.35f;
+	float ContactStrength = 1.25f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float ContactFalloff = 0.75f;
-	/** How fast contact pressure rises/falls (1/s). Lower = more viscous, continuous climb. */
+	float ContactFalloff = 0.7f;
+	/** Slow pressure rise/fall so contact spreads instead of popping. */
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float PressureSmoothRate = 7.f;
+	float PressureSmoothRate = 3.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float FlowSquash = 1.35f;
+	float FlowSquash = 1.4f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float FlowStretch = 1.15f;
+	float FlowStretch = 1.05f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float TangentialSpread = 0.55f;
+	float TangentialSpread = 0.65f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float StepUpSquash = 0.9f;
+	float StepUpSquash = 1.0f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
-	float IntoSpeedScale = 0.012f;
+	float IntoSpeedScale = 0.01f;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxImpactDeformationM = 0.22f;
+	float MaxImpactDeformationM = 0.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundDeformationHeightM = 0.42f;
+	float GroundDeformationHeightM = 0.45f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundContactStrengthM = 0.11f;
+	float GroundContactStrengthM = 0.12f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float GroundContactFalloff = 0.85f;
+	float GroundContactFalloff = 0.8f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxGroundCompressionM = 0.14f;
+	float MaxGroundCompressionM = 0.16f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingImpactStrength = 0.024f;
+	float LandingImpactStrength = 0.03f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float MaxLandingDeformationM = 0.18f;
+	float MaxLandingDeformationM = 0.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingVelocityThresholdMps = 1.0f;
+	float LandingVelocityThresholdMps = 0.9f;
+	/** Near-zero: landings flatten/flow, do not rebound. */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingBounceStrength = 1.1f;
+	float LandingBounceStrength = 0.08f;
+	/** Slow exponential settle of landing squash (1/s). */
 	UPROPERTY(EditAnywhere, Category = "Jelly")
-	float LandingRecoverySpeed = 6.5f;
+	float LandingRecoverySpeed = 2.4f;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float VolumePreservation = 0.7f;
+	float VolumePreservation = 0.78f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float MaxRadialExpansionM = 0.12f;
+	float MaxRadialExpansionM = 0.14f;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
-	float MaxVerticalCompressionM = 0.24f;
+	float MaxVerticalCompressionM = 0.26f;
+	/** How fast volume ooze blends (1/s). */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Volume")
+	float VolumeOozeRate = 3.5f;
 
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bContactDeformation = true;

@@ -597,19 +597,21 @@ void UJellyDeformerComponent::ApplyGround(float Dt, bool bGrounded, float Ground
 
 	if (Settings.bLandingImpact && !bWasGrounded && GroundImpactSpeedMps >= Settings.LandingVelocityThresholdMps)
 	{
+		// Instant flatten on impact — almost no rebound impulse (viscous liquid).
 		const float Peak = FMath::Min(GroundImpactSpeedMps * Settings.LandingImpactStrength, MaxLand);
-		const float Omega = FMath::Max(1.f, Settings.LandingRecoverySpeed);
-		LandingVelocity += Peak * Omega * Settings.LandingBounceStrength;
+		LandingPress = FMath::Max(LandingPress, Peak);
+		LandingVelocity = Peak * Settings.LandingBounceStrength; // ~0 ⇒ no spring pop
 	}
 	bWasGrounded = true;
 
 	{
-		const float Omega = FMath::Max(1.f, Settings.LandingRecoverySpeed);
-		const float Damping = 2.f * 0.55f * Omega;
-		const float Accel = -Omega * Omega * LandingPress - Damping * LandingVelocity;
-		LandingVelocity += Accel * Dt;
-		LandingPress += LandingVelocity * Dt;
-		LandingPress = FMath::Clamp(LandingPress, -MaxLand * 0.3f, MaxLand);
+		// Overdamped / exponential settle toward steady ground sit — no oscillation.
+		const float Rate = FMath::Max(0.5f, Settings.LandingRecoverySpeed);
+		const float Alpha = 1.f - FMath::Exp(-Rate * Dt);
+		const float TargetSit = Settings.GroundContactStrengthM * 0.35f;
+		LandingPress = FMath::Lerp(LandingPress, TargetSit, Alpha);
+		LandingVelocity = FMath::Lerp(LandingVelocity, 0.f, Alpha);
+		LandingPress = FMath::Clamp(LandingPress, 0.f, MaxLand);
 	}
 
 	float CompressionM = Settings.GroundContactStrengthM + LandingPress;
@@ -670,13 +672,15 @@ void UJellyDeformerComponent::ApplyVolumePreservation()
 	const float VertClamped = FMath::Clamp(VertScale, 1.f - Settings.MaxVerticalCompressionM / 0.5f, Settings.MaximumStretch);
 	const float TargetRadial = MeanRRest * FMath::Sqrt(FMath::Max(1.f / FMath::Max(VertClamped, 0.35f), 0.35f));
 	float RadialScale = TargetRadial / MeanRPose;
-	RadialScale = FMath::Lerp(1.f, RadialScale, Settings.VolumePreservation);
+	// Slow lateral ooze — don't slam volume correction in one frame.
+	const float Ooze = FMath::Clamp(Settings.VolumePreservation * 0.55f, 0.f, 1.f);
+	RadialScale = FMath::Lerp(1.f, RadialScale, Ooze);
 
 	const float MaxExpandCm = Settings.MaxRadialExpansionM * 100.f;
 	for (int32 I = 0; I < Pose.Num(); ++I)
 	{
-		FVector P = Pose[I];
-		FVector2D Horiz(P.X, P.Y);
+		FVector Want = Pose[I];
+		FVector2D Horiz(Want.X, Want.Y);
 		const float R0 = Horiz.Size();
 		if (R0 > KINDA_SMALL_NUMBER)
 		{
@@ -687,21 +691,22 @@ void UJellyDeformerComponent::ApplyVolumePreservation()
 				NewR = FMath::Min(NewR, RestR + MaxExpandCm);
 			}
 			Horiz *= (NewR / R0);
-			P.X = Horiz.X;
-			P.Y = Horiz.Y;
+			Want.X = Horiz.X;
+			Want.Y = Horiz.Y;
 		}
 		const float MaxVertCm = Settings.MaxVerticalCompressionM * 100.f;
-		const float ZOff = P.Z - Rest[I].Z;
-		P.Z = Rest[I].Z + FMath::Clamp(ZOff, -MaxVertCm, MaxDeformCm());
-		Pose[I] = P;
+		const float ZOff = Want.Z - Rest[I].Z;
+		Want.Z = Rest[I].Z + FMath::Clamp(ZOff, -MaxVertCm, MaxDeformCm());
+		Pose[I] = Want;
 	}
 	ClampPose();
 }
 
 void UJellyDeformerComponent::ApplyInertia(const FVector& LocalAccelCms)
 {
-	const FVector Kick = -LocalAccelCms * Settings.MovementDeformation * 0.35f;
-	if (Kick.SizeSquared() < 25.f)
+	// Thick liquid barely stores elastic kick — only a whisper of lag.
+	const FVector Kick = -LocalAccelCms * Settings.MovementDeformation * 0.12f;
+	if (Kick.SizeSquared() < 100.f)
 	{
 		return;
 	}
@@ -709,8 +714,8 @@ void UJellyDeformerComponent::ApplyInertia(const FVector& LocalAccelCms)
 	for (int32 I = 0; I < Rest.Num(); ++I)
 	{
 		const float Face = FVector::DotProduct(Rest[I].GetSafeNormal(), KickDir);
-		const float W = FMath::Lerp(0.3f, 1.f, FMath::Clamp((Face + 0.5f), 0.f, 1.f));
-		Velocity[I] += Kick * (W * Settings.StretchStrength * 0.45f);
+		const float W = FMath::Lerp(0.25f, 1.f, FMath::Clamp((Face + 0.5f), 0.f, 1.f));
+		Velocity[I] += Kick * (W * Settings.StretchStrength * 0.18f);
 	}
 }
 
@@ -718,19 +723,29 @@ void UJellyDeformerComponent::StepSprings(float Dt)
 {
 	ClampCurrentToRest();
 	const float MaxD = MaxDeformCm();
-	const float MaxSpeed = MaxD * 8.f;
+	const float MaxSpeed = MaxD * 4.5f; // kill fast elastic snaps
+
+	// Primary: exponential creep toward pose (no oscillation).
+	const float Creep = 1.f - FMath::Exp(-FMath::Max(0.4f, Settings.ViscosityCreepRate) * Dt);
+	for (int32 I = 0; I < Current.Num(); ++I)
+	{
+		Current[I] = FMath::Lerp(Current[I], Pose[I], Creep);
+	}
+
+	// Residual overdamped spring (ζ = DampingRatio ≥ 1) — languid settle, not bounce.
+	const float K = FMath::Max(0.01f, Settings.SpringStrength * Settings.RecoverySpeed);
+	const float Omega = FMath::Sqrt(K);
+	const float CritDamp = 2.f * Omega;
+	const float Damp = FMath::Max(Settings.Damping, CritDamp * FMath::Max(1.f, Settings.DampingRatio));
 
 	TArray<FVector> Force;
 	Force.SetNumZeroed(Current.Num());
-
-	// Viscous follow: low K, high damp — goo settles instead of snapping.
-	const float K = Settings.SpringStrength * Settings.RecoverySpeed;
-	const float Damp = Settings.Damping * (1.05f + 0.35f * (1.f - Settings.RecoverySpeed));
 	for (int32 I = 0; I < Current.Num(); ++I)
 	{
 		Force[I] += -K * (Current[I] - Pose[I]) - Damp * Velocity[I];
 	}
 
+	// Soft neighbor coupling (low strength → fewer ringing modes).
 	for (const FEdge& E : Edges)
 	{
 		const FVector CurDelta = Current[E.B] - Current[E.A];
@@ -740,9 +755,11 @@ void UJellyDeformerComponent::StepSprings(float Dt)
 		Force[E.B] -= Term;
 	}
 
+	const float VelKill = 1.f - FMath::Exp(-FMath::Max(4.f, Settings.Damping * 0.65f) * Dt);
 	for (int32 I = 0; I < Current.Num(); ++I)
 	{
 		Velocity[I] += Force[I] * Dt;
+		Velocity[I] = FMath::Lerp(Velocity[I], FVector::ZeroVector, VelKill);
 		if (Velocity[I].Size() > MaxSpeed)
 		{
 			Velocity[I] = Velocity[I].GetSafeNormal() * MaxSpeed;
@@ -750,6 +767,7 @@ void UJellyDeformerComponent::StepSprings(float Dt)
 		Current[I] += Velocity[I] * Dt;
 	}
 
+	// Gentle length limits — partial correction so edges ooze, not snap.
 	for (const FEdge& E : Edges)
 	{
 		FVector Delta = Current[E.B] - Current[E.A];
@@ -764,7 +782,7 @@ void UJellyDeformerComponent::StepSprings(float Dt)
 		if (Len > LimitHigh || Len < LimitLow)
 		{
 			const float Target = FMath::Clamp(Len, LimitLow, LimitHigh);
-			const FVector Corr = Delta.GetSafeNormal() * ((Len - Target) * 0.5f);
+			const FVector Corr = Delta.GetSafeNormal() * ((Len - Target) * 0.22f);
 			Current[E.A] += Corr;
 			Current[E.B] -= Corr;
 		}
@@ -791,8 +809,9 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 		: FVector(WorldVelocityCms.X, WorldVelocityCms.Y, 0.f);
 	FlowWorld.Z = 0.f;
 	const FVector LocalFlow = YawRot.UnrotateVector(FlowWorld);
-	const float TargetFlow = FMath::Clamp(LocalFlow.Size() * 0.01f * 0.22f, 0.f, 1.f);
-	const float FlowAlpha = 1.f - FMath::Exp(-6.f * Dt);
+	const float TargetFlow = FMath::Clamp(LocalFlow.Size() * 0.01f * 0.2f, 0.f, 1.f);
+	// Slow flow-field blend — pressure creeps with move intent, doesn't whip.
+	const float FlowAlpha = 1.f - FMath::Exp(-3.2f * Dt);
 	SmoothedFlowAmount = FMath::Lerp(SmoothedFlowAmount, TargetFlow, FlowAlpha);
 	if (!LocalFlow.IsNearlyZero())
 	{
