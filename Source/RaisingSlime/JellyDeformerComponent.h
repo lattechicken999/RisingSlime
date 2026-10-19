@@ -72,6 +72,27 @@ struct FJellySettings
 	UPROPERTY(EditAnywhere, Category = "Jelly|Flow")
 	float IntoSpeedScale = 0.01f;
 
+	/**
+	 * Underside engulf: obstacles shorter than this × body radius get wrapped under the mass
+	 * (cavity + lateral ooze). Tall walls stay face-squash only.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	bool bUndersideEngulf = true;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf", meta = (ClampMin = "0.2", ClampMax = "1.0"))
+	float EngulfMaxHeightFraction = 0.85f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	float EngulfMinHeightCm = 4.f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	float EngulfWrapStrength = 1.15f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	float EngulfLateralOoze = 0.7f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	float EngulfInfluenceRadiusScale = 0.7f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	float EngulfSmoothRate = 4.f;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Engulf")
+	float EngulfStepUpBoost = 0.45f;
+
 	UPROPERTY(EditAnywhere, Category = "Jelly")
 	float MaxImpactDeformationM = 0.2f;
 	UPROPERTY(EditAnywhere, Category = "Jelly")
@@ -119,6 +140,8 @@ struct FJellySettings
 	bool bWorldContactProbe = true;
 	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
 	bool bDirectionalFlow = true;
+	UPROPERTY(EditAnywhere, Category = "Jelly|Features")
+	bool bUndersideEngulfFeature = true;
 };
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -188,15 +211,29 @@ protected:
 		float Age = 0.f;
 	};
 
+	/** Low obstacle under the body — underside cavity wrap / engulf. */
+	struct FEngulfSite
+	{
+		FVector LocalTop = FVector::ZeroVector;
+		float HeightCm = 0.f;
+		float RadiusCm = 0.f;
+		float Strength = 0.f;
+		float TargetStrength = 0.f;
+		float Age = 0.f;
+	};
+
 	void BuildRestMesh();
 	void EnsureMeshComponent();
 	void WriteMesh();
 	void ComputeNormals(TArray<FVector>& OutNormals) const;
 
 	void GatherWorldContacts(const FVector& WorldVelocityCms);
+	void GatherEngulfObstacles();
 	void UpdateSmoothedContacts(float Dt);
+	void UpdateSmoothedEngulfs(float Dt, float StepUpCm);
 	void ApplyDirectionalFlow(const FVector& LocalFlowDir, float FlowAmount, float StepUpCm);
 	void ApplySmoothedContacts();
+	void ApplyEngulfWrap();
 	void BuildPose(const FVector& LocalVelocityCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);
 	void ApplyVolumePreservation();
@@ -229,6 +266,8 @@ protected:
 
 	TArray<FPendingContact> PendingContacts;
 	TArray<FSmoothedContact> SmoothedContacts;
+	TArray<FEngulfSite> PendingEngulfs;
+	TArray<FEngulfSite> SmoothedEngulfs;
 
 	float BodyScale = 1.f;
 	float LandingPress = 0.f;
@@ -242,4 +281,5 @@ protected:
 	FVector PrevWorldVelocityCms = FVector::ZeroVector;
 
 	static constexpr int32 MaxContactsPerStep = 8;
+	static constexpr int32 MaxEngulfsPerStep = 4;
 };
