@@ -36,7 +36,6 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 	Proxy->SetGenerateOverlapEvents(false);
 	Proxy->SetCastShadow(false);
 	Proxy->SetMobility(EComponentMobility::Movable);
-	Proxy->bRenderableInSceneCapture = true;
 
 	// Copy materials so rock/creature look matches world prey.
 	const int32 Mats = Prey->MeshComponent->GetNumMaterials();
