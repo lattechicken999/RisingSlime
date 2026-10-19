@@ -93,6 +93,7 @@ void ASlimePawn::BeginPlay()
 		PC->EnsureRuntimeInput();
 	}
 	BindEnhancedInput();
+	SlimeVfx::Warmup(GetWorld());
 }
 
 void ASlimePawn::PossessedBy(AController* NewController)

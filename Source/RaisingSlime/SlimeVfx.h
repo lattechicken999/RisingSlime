@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/SoftObjectPtr.h"
 
 class UNiagaraSystem;
 class UWorld;
@@ -16,5 +15,7 @@ enum class ESlimeSplashKind : uint8
 
 namespace SlimeVfx
 {
+	/** Soft-load assets once; uses Display verbosity so Output Log shows it by default. */
+	void Warmup(UWorld* World);
 	void Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Location, float BodySize = 1.f);
 }

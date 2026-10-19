@@ -1,28 +1,64 @@
 #include "SlimeVfx.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
+#include "Engine/Engine.h"
 #include "RaisingSlimeTypes.h"
 
 namespace
 {
-	UNiagaraSystem* LoadSplash(ESlimeSplashKind Kind)
+	const TCHAR* PathFor(ESlimeSplashKind Kind)
 	{
-		const TCHAR* Path = TEXT("/Game/FX/NS_DevourSplash.NS_DevourSplash");
-		float DefaultScale = 1.f;
 		switch (Kind)
 		{
 		case ESlimeSplashKind::Spit:
-			Path = TEXT("/Game/FX/NS_SpitSplash.NS_SpitSplash");
-			break;
+			return TEXT("/Game/FX/NS_SpitSplash.NS_SpitSplash");
 		case ESlimeSplashKind::Death:
-			Path = TEXT("/Game/FX/NS_DeathSplash.NS_DeathSplash");
-			break;
+			return TEXT("/Game/FX/NS_DeathSplash.NS_DeathSplash");
 		default:
-			break;
+			return TEXT("/Game/FX/NS_DevourSplash.NS_DevourSplash");
 		}
-		(void)DefaultScale;
-		return LoadObject<UNiagaraSystem>(nullptr, Path);
 	}
+
+	const TCHAR* LabelFor(ESlimeSplashKind Kind)
+	{
+		switch (Kind)
+		{
+		case ESlimeSplashKind::Spit:
+			return TEXT("Spit");
+		case ESlimeSplashKind::Death:
+			return TEXT("Death");
+		default:
+			return TEXT("Devour");
+		}
+	}
+
+	UNiagaraSystem* LoadSplash(ESlimeSplashKind Kind)
+	{
+		return LoadObject<UNiagaraSystem>(nullptr, PathFor(Kind));
+	}
+
+	void ScreenNote(UWorld* World, const FString& Msg, const FColor& Color)
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(INDEX_NONE, 3.5f, Color, Msg);
+		}
+		if (World)
+		{
+			UE_LOG(LogTemp, Display, TEXT("%s"), *Msg);
+		}
+	}
+}
+
+void SlimeVfx::Warmup(UWorld* World)
+{
+	const bool bDevour = LoadSplash(ESlimeSplashKind::Devour) != nullptr;
+	const bool bSpit = LoadSplash(ESlimeSplashKind::Spit) != nullptr;
+	const bool bDeath = LoadSplash(ESlimeSplashKind::Death) != nullptr;
+	const FString Msg = FString::Printf(
+		TEXT("SlimeVfx: warmup devour=%d spit=%d death=%d (삼키면/토하면/죽으면 다시 로그)"),
+		bDevour ? 1 : 0, bSpit ? 1 : 0, bDeath ? 1 : 0);
+	ScreenNote(World, Msg, (bDevour && bSpit && bDeath) ? FColor::Green : FColor::Orange);
 }
 
 void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Location, float BodySize)
@@ -35,12 +71,13 @@ void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Locatio
 	UNiagaraSystem* System = LoadSplash(Kind);
 	if (!System)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("SlimeVfx: missing Niagara asset for kind %d (run Content/Python/create_slime_vfx.py)"),
-			static_cast<int32>(Kind));
+		ScreenNote(
+			World,
+			FString::Printf(TEXT("SlimeVfx: MISSING %s (%s)"), LabelFor(Kind), PathFor(Kind)),
+			FColor::Red);
 		return;
 	}
 
-	// Spec: sim domain stays within ~2 m of the body.
 	const float Scale = FMath::Clamp(0.35f + BodySize * 0.25f, 0.35f, 1.1f);
 	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 		World,
@@ -53,5 +90,8 @@ void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Locatio
 		ENCPoolMethod::AutoRelease,
 		true);
 
-	UE_LOG(LogTemp, Log, TEXT("SlimeVfx: spawned kind %d scale=%.2f"), static_cast<int32>(Kind), Scale);
+	ScreenNote(
+		World,
+		FString::Printf(TEXT("SlimeVfx: spawned %s scale=%.2f"), LabelFor(Kind), Scale),
+		FColor::Cyan);
 }
