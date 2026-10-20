@@ -36,6 +36,16 @@ public:
 	FVector GetParticleWorldPos(int32 Index) const;
 	float GetParticleRadius(int32 Index) const;
 	FVector GetBodyCenterWorld() const;
+	float GetBodyRadiusCm() const { return BodyRadiusCm; }
+
+	/** True if WorldPos lies inside any soft-volume particle sphere (or body fallback). */
+	bool ContainsWorldPoint(const FVector& WorldPos) const;
+
+	/**
+	 * Fraction of SamplePoints inside the soft volume [0..1].
+	 * Used for player-driven engulf coverage.
+	 */
+	float SampleCoverage(const TArray<FVector>& SamplePoints) const;
 
 	/**
 	 * Local-space displacement (cm) for PMC skinning at mesh-local point (scaled cm).

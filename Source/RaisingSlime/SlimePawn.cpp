@@ -102,6 +102,7 @@ void ASlimePawn::BeginPlay()
 	}
 	if (GutContent)
 	{
+		GutContent->OnGutContained.BindUObject(this, &ASlimePawn::HandleGutContained);
 		GutContent->OnGutAbsorbed.BindUObject(this, &ASlimePawn::HandleGutAbsorbed);
 	}
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
@@ -598,6 +599,14 @@ void ASlimePawn::ClearGutContent()
 	}
 }
 
+void ASlimePawn::HandleGutContained(float Mass, ETraitId Trait, ADevourable* Prey)
+{
+	if (AExpeditionDirector* Director = FindDirector())
+	{
+		Director->OnGutContained(Mass, Trait, Prey);
+	}
+}
+
 void ASlimePawn::HandleGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey)
 {
 	if (AExpeditionDirector* Director = FindDirector())
@@ -687,7 +696,7 @@ float ASlimePawn::GetBodySize() const
 {
 	AExpeditionDirector* Director = FindDirector();
 	const float Mass = Director ? Director->GetTotalMass() : 0.f;
-	// Mass growth + sustained gut occupancy swell (object volume reads while inside).
+	// Contained grow ease (after seal); Held mass not in RunMass yet.
 	const float Swell = GutContent ? GutContent->GetSwallowSwellBonus() : 0.f;
 	return FMath::Clamp(1.15f + Mass * 0.095f + Swell, 1.15f, 3.6f);
 }

@@ -85,12 +85,12 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 		bSuccess = FMath::FRand() <= Chance;
 	}
 
-	RunMass += Prey->Mass;
 	LastEatTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	// RunMass commits on Contained (after player fully covers prey) — not at channel end.
 
 	if (Prey->Trait == ETraitId::None || bAlready)
 	{
-		Status = FString::Printf(TEXT("%s을(를) 삼켰다. 질량 +%.1f. 새 형질은 없다."), *Prey->GetLabel(), Prey->Mass);
+		Status = FString::Printf(TEXT("%s을(를) 붙잡았다. 몸으로 완전히 감싸라."), *Prey->GetLabel());
 	}
 	else if (bSuccess)
 	{
@@ -98,7 +98,7 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 		Active = Prey->Trait;
 		Pity.Add(Prey->Trait, 0);
 		Status = FString::Printf(
-			TEXT("%s의 %s 흡수 중 (%d%%). 소화되면 슬롯이 비어 있을 때 확정된다."),
+			TEXT("%s의 %s — 몸으로 감싸 삼켜라 (%d%%)."),
 			*Prey->GetLabel(),
 			*TraitText::Name(Prey->Trait),
 			FMath::RoundToInt(Chance * 100.f));
@@ -108,27 +108,37 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 		const int32 Fails = Pity.FindRef(Prey->Trait);
 		Pity.Add(Prey->Trait, Fails + 1);
 		Status = FString::Printf(
-			TEXT("%s을(를) 삼켰다. %s 흡수 실패 (%d%%). 질량만 늘었다."),
+			TEXT("%s을(를) 붙잡았다. %s 흡수 실패 (%d%%). 몸으로 감싸라."),
 			*Prey->GetLabel(),
 			*TraitText::Name(Prey->Trait),
 			FMath::RoundToInt(Chance * 100.f));
 	}
 
-	// Swallow attaches the live prey into the body (visible float). No instant hide/pop.
 	if (Slime && Slime->GetGutContent())
 	{
 		Slime->GetGutContent()->Swallow(Prey);
 	}
 	else
 	{
-		Prey->Consume();
+		Prey->BeginHeld();
 		Prey->SetActorHiddenInGame(true);
 	}
 	if (Slime)
 	{
 		Slime->NotifyAte();
+	}
+}
+
+void AExpeditionDirector::OnGutContained(float Mass, ETraitId /*Trait*/, ADevourable* Prey)
+{
+	RunMass += Mass;
+	if (Slime)
+	{
 		Slime->RefreshBody();
 	}
+	Status = Prey
+		? FString::Printf(TEXT("%s을(를) 삼켰다. 몸 안에서 소화 중…"), *Prey->GetLabel())
+		: TEXT("삼킴 완료. 몸 안에서 소화 중…");
 }
 
 void AExpeditionDirector::OnGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey)

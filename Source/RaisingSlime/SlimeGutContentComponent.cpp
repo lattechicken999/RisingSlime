@@ -1,6 +1,7 @@
 #include "SlimeGutContentComponent.h"
 #include "Devourable.h"
 #include "SlimePawn.h"
+#include "SlimeSoftVolumeComponent.h"
 #include "RaisingSlimeTypes.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -11,9 +12,17 @@ USlimeGutContentComponent::USlimeGutContentComponent()
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 }
 
-FVector USlimeGutContentComponent::GutAnchorLocal() const
+float USlimeGutContentComponent::GetPendingHeldMass() const
 {
-	return FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm);
+	float Total = 0.f;
+	for (const FGutEntry& E : Entries)
+	{
+		if (E.Phase == EGutPhase::Held)
+		{
+			Total += E.Mass;
+		}
+	}
+	return Total;
 }
 
 float USlimeGutContentComponent::GetContainedMass() const
@@ -21,13 +30,13 @@ float USlimeGutContentComponent::GetContainedMass() const
 	float Total = 0.f;
 	for (const FGutEntry& E : Entries)
 	{
-		if (!E.bDissolving)
+		if (E.Phase == EGutPhase::Contained)
 		{
-			Total += E.Mass;
+			Total += E.Mass * E.Grow01;
 		}
-		else
+		else if (E.Phase == EGutPhase::Dissolving)
 		{
-			Total += E.Mass * FMath::Max(0.f, 1.f - E.Dissolve01);
+			Total += E.Mass * E.Grow01 * FMath::Max(0.f, 1.f - E.Dissolve01);
 		}
 	}
 	return Total;
@@ -35,7 +44,43 @@ float USlimeGutContentComponent::GetContainedMass() const
 
 float USlimeGutContentComponent::GetSwallowSwellBonus() const
 {
-	return SwellBonus + GetContainedMass() * ContainedMassToSize;
+	return GetContainedMass() * ContainedMassToSize;
+}
+
+float USlimeGutContentComponent::ComputeCoverage(ADevourable* Prey) const
+{
+	if (!Prey)
+	{
+		return 0.f;
+	}
+
+	TArray<FVector> Samples;
+	Prey->CollectEngulfSamplePoints(Samples);
+
+	const ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner());
+	if (SoftSlime && SoftSlime->GetSoftVolume() && SoftSlime->GetSoftVolume()->bEnabled)
+	{
+		return SoftSlime->GetSoftVolume()->SampleCoverage(Samples);
+	}
+
+	// Fallback: body sphere at soft/mesh center.
+	FVector Center = GetOwner() ? GetOwner()->GetActorLocation() + FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm) : FVector::ZeroVector;
+	float Radius = SoftSlime ? SoftSlime->GetBodySize() * 50.f : 50.f;
+	if (SoftSlime && SoftSlime->GetSoftVolume())
+	{
+		Center = SoftSlime->GetSoftVolume()->GetBodyCenterWorld();
+		Radius = SoftSlime->GetSoftVolume()->GetBodyRadiusCm();
+	}
+
+	int32 Inside = 0;
+	for (const FVector& Pt : Samples)
+	{
+		if (FVector::DistSquared(Pt, Center) <= FMath::Square(Radius))
+		{
+			++Inside;
+		}
+	}
+	return Samples.Num() > 0 ? static_cast<float>(Inside) / static_cast<float>(Samples.Num()) : 0.f;
 }
 
 void USlimeGutContentComponent::Swallow(ADevourable* Prey)
@@ -45,56 +90,93 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 		return;
 	}
 
-	USceneComponent* Root = GetOwner()->GetRootComponent();
-	if (!Root)
+	Prey->BeginHeld();
+
+	FGutEntry Entry;
+	Entry.Prey = Prey;
+	Entry.Phase = EGutPhase::Held;
+	Entry.Mass = Prey->Mass;
+	Entry.Trait = Prey->Trait;
+	Entry.HeldWorldLocation = Prey->GetActorLocation();
+	Entry.RestScale3D = Prey->GetActorScale3D();
+	Entry.AbsorbRemaining = FMath::Max(0.5f, AbsorbDuration);
+	Entry.PhaseBob = FMath::FRandRange(0.f, PI * 2.f);
+	Entries.Add(Entry);
+
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Held %s at world (no pull). Cover with body to contain. gut=%d"),
+		*Prey->GetLabel(), Entries.Num());
+}
+
+void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
+{
+	ADevourable* Prey = Entry.Prey.Get();
+	USceneComponent* Root = GetOwner() ? GetOwner()->GetRootComponent() : nullptr;
+	if (!Prey || !Root)
 	{
 		return;
 	}
 
-	const FVector WorldLoc = Prey->GetActorLocation();
-	const FVector WorldScale = Prey->GetActorScale3D();
-
-	Prey->AttachIntoGut(Root);
-
-	FGutEntry Entry;
-	Entry.Prey = Prey;
-	Entry.Mass = Prey->Mass;
-	Entry.Trait = Prey->Trait;
+	const FVector SealWorld = Prey->GetActorLocation();
+	Entry.SealLocalOffset = Root->GetComponentTransform().InverseTransformPosition(SealWorld);
+	Entry.HeldWorldLocation = SealWorld;
+	Entry.Phase = EGutPhase::Contained;
+	Entry.ContainedAge = 0.f;
+	Entry.Grow01 = 0.f;
 	Entry.AbsorbRemaining = FMath::Max(0.5f, AbsorbDuration);
-	Entry.BaseLocal = GutAnchorLocal() + FVector(
-		FMath::FRandRange(-12.f, 12.f),
-		FMath::FRandRange(-12.f, 12.f),
-		FMath::FRandRange(-8.f, 10.f));
-	Entry.PullStartLocal = Root->GetComponentTransform().InverseTransformPosition(WorldLoc);
-	Entry.RestScale3D = WorldScale * FitScale;
-	Entry.Phase = FMath::FRandRange(0.f, PI * 2.f);
-	Entry.bPulling = true;
-	Entry.Pull01 = 0.f;
+	Entry.bAbsorbNotified = false;
 
-	Prey->SetActorRelativeLocation(Entry.PullStartLocal);
-	Prey->SetActorRelativeScale3D(Entry.RestScale3D);
-	Prey->SetActorRelativeRotation(FRotator(
-		FMath::FRandRange(-12.f, 12.f),
-		FMath::FRandRange(0.f, 360.f),
-		FMath::FRandRange(-8.f, 8.f)));
+	Prey->SealIntoGut(Root, Entry.SealLocalOffset);
+	Entry.RestScale3D = Prey->GetActorRelativeScale3D();
 
-	Entries.Add(Entry);
-	SwellBonus = FMath::Min(SwellBonus + SwallowSwell + Prey->Mass * 0.04f, 0.7f);
+	if (!Entry.bMassCommitted)
+	{
+		Entry.bMassCommitted = true;
+		OnGutContained.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
+	}
 
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: swallowed %s mass=%.1f (visible attach, absorb=%.1fs, gut=%d)"),
-		*Prey->GetLabel(), Entry.Mass, Entry.AbsorbRemaining, Entries.Num());
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Contained %s sealLocal=(%.1f,%.1f,%.1f) — float here, no COM pull"),
+		*Prey->GetLabel(), Entry.SealLocalOffset.X, Entry.SealLocalOffset.Y, Entry.SealLocalOffset.Z);
+}
+
+void USlimeGutContentComponent::TickHeldEngulf(FGutEntry& Entry, float Dt)
+{
+	ADevourable* Prey = Entry.Prey.Get();
+	if (!Prey)
+	{
+		return;
+	}
+
+	// Pin world pose — never attach/pull toward body center.
+	Prey->SetActorLocation(Entry.HeldWorldLocation);
+	Prey->SetActorHiddenInGame(false);
+
+	const float Coverage = ComputeCoverage(Prey);
+	if (Coverage >= EngulfCoverageThreshold)
+	{
+		Entry.EngulfHoldAccum += Dt;
+		if (Entry.EngulfHoldAccum >= EngulfHoldSeconds)
+		{
+			EnterContained(Entry);
+		}
+	}
+	else
+	{
+		Entry.EngulfHoldAccum = FMath::Max(0.f, Entry.EngulfHoldAccum - Dt * 2.f);
+	}
 }
 
 void USlimeGutContentComponent::BeginDissolveAll()
 {
 	for (FGutEntry& E : Entries)
 	{
-		E.bDissolving = true;
+		if (E.Phase == EGutPhase::Held)
+		{
+			// Never contained — drop without mass commit (tick finishes).
+			E.bAbsorbNotified = true;
+			continue;
+		}
+		E.Phase = EGutPhase::Dissolving;
 		E.bAbsorbNotified = true;
-	}
-	if (Entries.Num() > 0)
-	{
-		UE_LOG(LogTemp, Display, TEXT("SlimeGut: dissolving %d contents"), Entries.Num());
 	}
 }
 
@@ -105,7 +187,6 @@ void USlimeGutContentComponent::ClearImmediate()
 		FinishEntry(E);
 	}
 	Entries.Reset();
-	SwellBonus = 0.f;
 }
 
 void USlimeGutContentComponent::FinishEntry(FGutEntry& Entry)
@@ -125,44 +206,54 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 		return;
 	}
 
-	if (!Entry.bDissolving && !Entry.bAbsorbNotified)
+	if (Entry.Phase == EGutPhase::Held)
 	{
-		Entry.AbsorbRemaining -= Dt;
-		if (Entry.AbsorbRemaining <= 0.f)
+		TickHeldEngulf(Entry, Dt);
+		return;
+	}
+
+	if (Entry.Phase == EGutPhase::Contained)
+	{
+		Entry.ContainedAge += Dt;
+		if (Entry.ContainedAge <= GrowDelay)
 		{
-			Entry.AbsorbRemaining = 0.f;
-			Entry.bAbsorbNotified = true;
-			Entry.bDissolving = true;
-			OnGutAbsorbed.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
-			UE_LOG(LogTemp, Display, TEXT("SlimeGut: absorb complete mass=%.1f trait=%s — dissolving"),
-				Entry.Mass, *TraitText::Name(Entry.Trait));
+			Entry.Grow01 = 0.f;
+		}
+		else
+		{
+			const float T = (Entry.ContainedAge - GrowDelay) / FMath::Max(0.05f, GrowEaseDuration);
+			const float Clamped = FMath::Clamp(T, 0.f, 1.f);
+			// Ease-out cubic.
+			Entry.Grow01 = 1.f - FMath::Pow(1.f - Clamped, 3.f);
+		}
+
+		if (!Entry.bAbsorbNotified)
+		{
+			Entry.AbsorbRemaining -= Dt;
+			if (Entry.AbsorbRemaining <= 0.f)
+			{
+				Entry.AbsorbRemaining = 0.f;
+				Entry.bAbsorbNotified = true;
+				Entry.Phase = EGutPhase::Dissolving;
+				OnGutAbsorbed.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
+				UE_LOG(LogTemp, Display, TEXT("SlimeGut: absorb complete mass=%.1f — dissolving at seal"),
+					Entry.Mass);
+			}
 		}
 	}
 
-	Entry.Phase += Dt * BobSpeed;
+	// Float / dissolve at seal local offset only (never lerp toward COM).
+	Entry.PhaseBob += Dt * BobSpeed;
+	const float Amp = FloatBobAmplitude;
 	const FVector Bob(
-		FMath::Sin(Entry.Phase) * BobAmpCm * 0.35f,
-		FMath::Cos(Entry.Phase * 0.85f) * BobAmpCm * 0.35f,
-		FMath::Sin(Entry.Phase * 1.3f) * BobAmpCm);
+		FMath::Sin(Entry.PhaseBob) * Amp * 0.35f,
+		FMath::Cos(Entry.PhaseBob * 0.85f) * Amp * 0.35f,
+		FMath::Sin(Entry.PhaseBob * 1.3f) * Amp);
 
-	if (Entry.bPulling)
-	{
-		Entry.Pull01 = FMath::Clamp(Entry.Pull01 + Dt / FMath::Max(0.1f, PullInSeconds), 0.f, 1.f);
-		const float T = Entry.Pull01 * Entry.Pull01 * (3.f - 2.f * Entry.Pull01);
-		const FVector Target = Entry.BaseLocal + Bob * T;
-		Prey->SetActorRelativeLocation(FMath::Lerp(Entry.PullStartLocal, Target, T));
-		if (Entry.Pull01 >= 1.f)
-		{
-			Entry.bPulling = false;
-		}
-	}
-	else
-	{
-		Prey->SetActorRelativeLocation(Entry.BaseLocal + Bob);
-		Prey->AddActorLocalRotation(FRotator(0.f, Dt * 22.f, 0.f));
-	}
+	Prey->SetActorRelativeLocation(Entry.SealLocalOffset + Bob);
+	Prey->AddActorLocalRotation(FRotator(0.f, Dt * 16.f, 0.f));
 
-	if (Entry.bDissolving)
+	if (Entry.Phase == EGutPhase::Dissolving)
 	{
 		Entry.Dissolve01 = FMath::Clamp(Entry.Dissolve01 + Dt / FMath::Max(0.2f, DissolveSeconds), 0.f, 1.f);
 		const float Remain = 1.f - Entry.Dissolve01;
@@ -187,18 +278,23 @@ void USlimeGutContentComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (SwellBonus > 0.f)
-	{
-		SwellBonus = FMath::Max(0.f, SwellBonus - SwellDecayPerSec * DeltaTime);
-	}
-
 	for (int32 I = Entries.Num() - 1; I >= 0; --I)
 	{
-		TickEntry(Entries[I], DeltaTime);
-		if (!Entries[I].Prey.IsValid()
-			|| (Entries[I].bDissolving && Entries[I].Dissolve01 >= 1.f))
+		FGutEntry& E = Entries[I];
+		// Held prey cleared on BeginDissolveAll without entering Contained — finish now.
+		if (E.Phase == EGutPhase::Held && E.bAbsorbNotified)
 		{
-			FinishEntry(Entries[I]);
+			FinishEntry(E);
+			Entries.RemoveAtSwap(I);
+			continue;
+		}
+
+		TickEntry(E, DeltaTime);
+
+		if (!E.Prey.IsValid()
+			|| (E.Phase == EGutPhase::Dissolving && E.Dissolve01 >= 1.f))
+		{
+			FinishEntry(E);
 			Entries.RemoveAtSwap(I);
 		}
 	}

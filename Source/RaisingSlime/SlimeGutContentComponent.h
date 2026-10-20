@@ -7,11 +7,19 @@
 
 class ADevourable;
 
+UENUM()
+enum class EGutPhase : uint8
+{
+	Held,       // World pose frozen; player covers with body
+	Contained,  // Sealed at LocalOffset; float/bob + absorb timer
+	Dissolving
+};
+
 DECLARE_DELEGATE_ThreeParams(FOnGutAbsorbed, float /*Mass*/, ETraitId /*Trait*/, ADevourable* /*Prey*/);
+DECLARE_DELEGATE_ThreeParams(FOnGutContained, float /*Mass*/, ETraitId /*Trait*/, ADevourable* /*Prey*/);
 
 /**
- * Gut visuals: swallowed prey attaches into the slime, floats while absorbing,
- * then dissolves. No burst VFX / instant despawn. Soft-volume physics unchanged.
+ * Natural devour: Held (no pull) → player Engulf coverage → Contained float at seal offset → dissolve.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeGutContentComponent : public UActorComponent
@@ -23,76 +31,75 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	/** Pull the real prey actor into the body and keep it visible while floating. */
+	/** Channel complete → Held at world pose (no attach, no center pull). */
 	void Swallow(ADevourable* Prey);
 
-	/** Start melting all gut contents (legacy settle / emergency). */
 	void BeginDissolveAll();
-
-	/** Death: hide gut prey immediately and queue respawn. */
 	void ClearImmediate();
 
 	int32 GetGutCount() const { return Entries.Num(); }
 
-	/** Sustained size bonus from mass still floating inside (plus short swallow punch). */
+	/** Body swell from Contained+ mass after grow ease (no early punch). */
 	float GetSwallowSwellBonus() const;
 
 	float GetContainedMass() const;
+	float GetPendingHeldMass() const;
 
 	FOnGutAbsorbed OnGutAbsorbed;
+	FOnGutContained OnGutContained;
 
-	UPROPERTY(EditAnywhere, Category = "Gut")
+	UPROPERTY(EditAnywhere, Category = "Gut|Absorb")
 	float AbsorbDuration = 8.f;
 
-	UPROPERTY(EditAnywhere, Category = "Gut")
-	float BobAmpCm = 10.f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0.5", ClampMax = "1.0"))
+	float EngulfCoverageThreshold = 0.9f;
 
-	UPROPERTY(EditAnywhere, Category = "Gut")
-	float BobSpeed = 1.6f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0.05", ClampMax = "0.5"))
+	float EngulfHoldSeconds = 0.12f;
 
-	/** Scale prey inside gut relative to its world scale (readable, not tiny). */
-	UPROPERTY(EditAnywhere, Category = "Gut")
-	float FitScale = 0.72f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Float")
+	float FloatBobAmplitude = 6.f;
 
-	UPROPERTY(EditAnywhere, Category = "Gut")
-	float DissolveSeconds = 2.4f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Float")
+	float BobSpeed = 1.4f;
 
-	UPROPERTY(EditAnywhere, Category = "Gut")
-	float PullInSeconds = 0.55f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Grow", meta = (ClampMin = "0"))
+	float GrowDelay = 0.55f;
 
-	/** Extra body-size punch on swallow so growth reads immediately. */
-	UPROPERTY(EditAnywhere, Category = "Gut")
-	float SwallowSwell = 0.18f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Grow", meta = (ClampMin = "0.1"))
+	float GrowEaseDuration = 0.7f;
 
-	UPROPERTY(EditAnywhere, Category = "Gut")
-	float SwellDecayPerSec = 0.35f;
-
-	/** Body-size contribution per unit of mass still inside the gut. */
-	UPROPERTY(EditAnywhere, Category = "Gut")
+	UPROPERTY(EditAnywhere, Category = "Gut|Grow")
 	float ContainedMassToSize = 0.07f;
+
+	UPROPERTY(EditAnywhere, Category = "Gut|Absorb")
+	float DissolveSeconds = 2.4f;
 
 protected:
 	struct FGutEntry
 	{
 		TWeakObjectPtr<ADevourable> Prey;
+		EGutPhase Phase = EGutPhase::Held;
 		float Mass = 0.f;
 		ETraitId Trait = ETraitId::None;
+		FVector HeldWorldLocation = FVector::ZeroVector;
+		FVector SealLocalOffset = FVector::ZeroVector;
+		FVector RestScale3D = FVector::OneVector;
+		float EngulfHoldAccum = 0.f;
+		float ContainedAge = 0.f;
+		float Grow01 = 0.f;
 		float AbsorbRemaining = 8.f;
 		bool bAbsorbNotified = false;
-		FVector BaseLocal = FVector::ZeroVector;
-		FVector PullStartLocal = FVector::ZeroVector;
-		FVector RestScale3D = FVector::OneVector;
-		float Phase = 0.f;
-		float Pull01 = 0.f;
+		bool bMassCommitted = false;
+		float PhaseBob = 0.f;
 		float Dissolve01 = 0.f;
-		bool bPulling = true;
-		bool bDissolving = false;
 	};
 
 	void TickEntry(FGutEntry& Entry, float Dt);
+	void TickHeldEngulf(FGutEntry& Entry, float Dt);
+	void EnterContained(FGutEntry& Entry);
 	void FinishEntry(FGutEntry& Entry);
-	FVector GutAnchorLocal() const;
+	float ComputeCoverage(ADevourable* Prey) const;
 
 	TArray<FGutEntry> Entries;
-	float SwellBonus = 0.f;
 };

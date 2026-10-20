@@ -66,16 +66,18 @@ void ADevourable::StoreHome()
 	bHomeStored = true;
 }
 
-void ADevourable::Consume()
+void ADevourable::DisableCollisionKeepVisible()
 {
 	bConsumed = true;
-	// Stay visible — gut attach + float is the primary devour read. No pop-hide.
 	SetActorEnableCollision(false);
 	SetActorTickEnabled(false);
+	SetActorHiddenInGame(false);
 	if (MeshComponent)
 	{
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		MeshComponent->SetGenerateOverlapEvents(false);
+		MeshComponent->SetVisibility(true);
+		MeshComponent->SetHiddenInGame(false);
 	}
 	if (UWorld* World = GetWorld())
 	{
@@ -83,7 +85,19 @@ void ADevourable::Consume()
 	}
 }
 
-void ADevourable::AttachIntoGut(USceneComponent* GutRoot)
+void ADevourable::BeginHeld()
+{
+	HeldWorldLocation = GetActorLocation();
+	DisableCollisionKeepVisible();
+	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
+	SetActorLocation(HeldWorldLocation);
+	SetActorScale3D(HomeScale3D);
+}
+
+void ADevourable::SealIntoGut(USceneComponent* GutRoot, const FVector& LocalOffset)
 {
 	if (!GutRoot)
 	{
@@ -91,15 +105,39 @@ void ADevourable::AttachIntoGut(USceneComponent* GutRoot)
 	}
 
 	bInsideGut = true;
-	Consume();
-	AttachToComponent(GutRoot, FAttachmentTransformRules::KeepWorldTransform);
-	SetActorHiddenInGame(false);
-	SetActorEnableCollision(false);
+	DisableCollisionKeepVisible();
+	const FVector WorldScale = GetActorScale3D();
+	AttachToComponent(GutRoot, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	SetActorRelativeLocation(LocalOffset);
+	SetActorRelativeScale3D(WorldScale);
+	SetActorRelativeRotation(FRotator(
+		FMath::FRandRange(-8.f, 8.f),
+		FMath::FRandRange(0.f, 360.f),
+		FMath::FRandRange(-6.f, 6.f)));
+}
+
+void ADevourable::CollectEngulfSamplePoints(TArray<FVector>& OutPoints) const
+{
+	OutPoints.Reset();
+	FVector Origin = GetActorLocation();
+	FVector Extent = FVector(20.f);
 	if (MeshComponent)
 	{
-		MeshComponent->SetVisibility(true);
-		MeshComponent->SetHiddenInGame(false);
-		MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		const FBoxSphereBounds B = MeshComponent->Bounds;
+		Origin = B.Origin;
+		Extent = B.BoxExtent;
+	}
+	OutPoints.Add(Origin);
+	const FVector E = Extent * 0.85f;
+	for (int32 SX = -1; SX <= 1; SX += 2)
+	{
+		for (int32 SY = -1; SY <= 1; SY += 2)
+		{
+			for (int32 SZ = -1; SZ <= 1; SZ += 2)
+			{
+				OutPoints.Add(Origin + FVector(SX * E.X, SY * E.Y, SZ * E.Z));
+			}
+		}
 	}
 }
 
@@ -116,7 +154,6 @@ void ADevourable::FinishGutAndRespawn()
 	{
 		MeshComponent->SetVisibility(false);
 		MeshComponent->SetHiddenInGame(true);
-		// Restore mesh scale for next spawn (dissolve may have shrunk it).
 		MeshComponent->SetRelativeScale3D(FVector::OneVector);
 	}
 	SetActorScale3D(HomeScale3D);

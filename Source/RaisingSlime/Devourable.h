@@ -31,18 +31,20 @@ public:
 
 	void StoreHome();
 
-	/** Mark eaten: no collision / not devourable, but stay visible for gut float. */
-	void Consume();
+	/** Channel done: collision/AI off, stay visible at current world pose (Held/Engulf). */
+	void BeginHeld();
 
-	/** Attach under slime root while keeping world pose (pull-in starts from here). */
-	void AttachIntoGut(USceneComponent* GutRoot);
+	/** Contained seal: attach under slime with fixed local offset (no center pull). */
+	void SealIntoGut(USceneComponent* GutRoot, const FVector& LocalOffset);
 
 	/** Hide + detach after absorb dissolve or death; then start respawn timer. */
 	void FinishGutAndRespawn();
 
-	/** Start per-actor respawn after absorb (or death cleanup). */
 	void BeginRespawnCooldown();
 	virtual void RestoreScenePlacement();
+
+	/** Collect center + AABB corner samples for engulf coverage. */
+	void CollectEngulfSamplePoints(TArray<FVector>& OutPoints) const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey")
 	FString DisplayName;
@@ -59,7 +61,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey")
 	float BaseChance = 0.5f;
 
-	/** Seconds after absorb before this prey returns. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey")
 	float RespawnCooldown = 12.f;
 
@@ -70,10 +71,13 @@ protected:
 	UFUNCTION()
 	void OnRespawnTimer();
 
+	void DisableCollisionKeepVisible();
+
 	bool bConsumed = false;
 	bool bInsideGut = false;
 	bool bHomeStored = false;
 	FTransform HomeTransform;
 	FVector HomeScale3D = FVector::OneVector;
+	FVector HeldWorldLocation = FVector::ZeroVector;
 	FTimerHandle RespawnTimer;
 };

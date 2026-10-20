@@ -218,6 +218,40 @@ FVector USlimeSoftVolumeComponent::GetBodyCenterWorld() const
 	return Sum / Particles.Num();
 }
 
+bool USlimeSoftVolumeComponent::ContainsWorldPoint(const FVector& WorldPos) const
+{
+	const FVector BodyCenter = GetBodyCenterWorld();
+	const float BodyR = FMath::Max(20.f, BodyRadiusCm);
+
+	for (const FParticle& P : Particles)
+	{
+		if (FVector::DistSquared(WorldPos, P.WorldPos) <= FMath::Square(P.Radius))
+		{
+			return true;
+		}
+	}
+
+	// Body envelope — soft particles are a subset; full cover uses overall blob radius too.
+	return FVector::DistSquared(WorldPos, BodyCenter) <= FMath::Square(BodyR * 0.98f);
+}
+
+float USlimeSoftVolumeComponent::SampleCoverage(const TArray<FVector>& SamplePoints) const
+{
+	if (SamplePoints.Num() == 0)
+	{
+		return 0.f;
+	}
+	int32 Inside = 0;
+	for (const FVector& Pt : SamplePoints)
+	{
+		if (ContainsWorldPoint(Pt))
+		{
+			++Inside;
+		}
+	}
+	return static_cast<float>(Inside) / static_cast<float>(SamplePoints.Num());
+}
+
 bool USlimeSoftVolumeComponent::SweepParticle(AActor* Ignore, const FVector& Start, const FVector& End, float Radius, FHitResult& OutHit) const
 {
 	UWorld* World = GetWorld();

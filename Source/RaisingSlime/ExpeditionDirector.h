@@ -48,6 +48,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	void CompleteDevour(ADevourable* Prey);
 
+	/** Contained seal: commit run mass (growth starts after grow ease). */
+	void OnGutContained(float Mass, ETraitId Trait, ADevourable* Prey);
+
 	/** Field absorb: settle one gut's mass; promote Unstable→Confirmed if slot free. */
 	void OnGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey);
 

@@ -44,6 +44,7 @@ public:
 	/** Begin melting swallowed proxies (death / legacy settle). */
 	void BeginGutDissolve();
 	void ClearGutContent();
+	void HandleGutContained(float Mass, ETraitId Trait, ADevourable* Prey);
 	void HandleGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey);
 
 	UFUNCTION(BlueprintCallable, Category = "Slime")
