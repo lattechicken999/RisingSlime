@@ -11,8 +11,8 @@ class UJellyDeformerComponent;
 
 /**
  * Spec §13 Chaos Flesh experiment scaffold.
- * Visual primary is always the spring jelly PMC until Flesh mesh is
- * intentionally shown as a sphere-aligned soft body (not a tet pedestal).
+ * Production look = soft-volume draped spring jelly only.
+ * Flesh tet viz stays off unless both experiment + mesh flags are enabled.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeFleshExperimentComponent : public UActorComponent
@@ -26,17 +26,17 @@ public:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
+	/** Off by default — soft-volume jelly is the body. Opt-in for Flesh experiments. */
 	UPROPERTY(EditAnywhere, Category = "Flesh")
-	bool bEnableFleshExperiment = true;
+	bool bEnableFleshExperiment = false;
 
 	/** Soft path; authored via Dataflow (StaticToTet / Radial). */
 	UPROPERTY(EditAnywhere, Category = "Flesh")
 	FSoftObjectPath FleshAssetPath = FSoftObjectPath(TEXT("/Game/Flesh/FA_SlimeBody.FA_SlimeBody"));
 
 	/**
-	 * Draw Flesh tet ProceduralMesh. Default false — FA RestCollection currently
-	 * renders as a faceted tet volume under the jelly sphere (double body).
-	 * Keep spring jelly as the only visible slime until Flesh is visual-ready.
+	 * Draw Flesh tet ProceduralMesh. Default false — IsoStuffing reads as a ribbed
+	 * hollow shell / double body. Never show unless intentionally debugging Flesh.
 	 */
 	UPROPERTY(EditAnywhere, Category = "Flesh")
 	bool bShowFleshMesh = false;
@@ -57,6 +57,7 @@ protected:
 	void TryStartFlesh();
 	void ShutdownFlesh();
 	void SyncTransformToOwner();
+	void EnforceProductionVisibility() const;
 	void SetJellyVisible(bool bVisible) const;
 	void SetFleshMeshVisible(bool bVisible) const;
 	void AlignFleshToSlimeBody() const;
