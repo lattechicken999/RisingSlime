@@ -95,7 +95,7 @@ def build():
     rock = spawn_actor("/Script/RaisingSlime.Devourable", "Prey_Rock", (6.2, 0.42, 5.4), (0.70, 0.55, 0.70))
     if rock:
         rock.set_editor_property("display_name", "돌")
-        rock.set_editor_property("kind", unreal.PreyKind.OBJECT)
+        rock.set_editor_property("kind", unreal.PreyKind.ROCK)
         rock.set_editor_property("mass", 2.0)
         rock.set_editor_property("trait", unreal.TraitId.HARDEN)
         rock.set_editor_property("base_chance", 0.62)
@@ -105,7 +105,7 @@ def build():
     rubber = spawn_actor("/Script/RaisingSlime.Devourable", "Prey_Rubber", (-4.2, 0.34, 6.6), 0.62)
     if rubber:
         rubber.set_editor_property("display_name", "고무")
-        rubber.set_editor_property("kind", unreal.PreyKind.OBJECT)
+        rubber.set_editor_property("kind", unreal.PreyKind.RUBBER)
         rubber.set_editor_property("mass", 2.0)
         rubber.set_editor_property("trait", unreal.TraitId.BOUNCE)
         rubber.set_editor_property("base_chance", 0.58)
@@ -128,13 +128,27 @@ def build():
     ], start=1):
         spawn_mesh(f"Stone_{i:02d}", "/Engine/BasicShapes/Sphere", pos, sc, (0.48, 0.48, 0.50), 0.82, True)
 
-    # Grass (no collision)
+    # C0 basic ammo — devourable grass (Director also runtime-spawns if missing).
     grass_positions = [
         (2.4, 0.28, 2.2), (3.6, 0.34, 3.1), (5.1, 0.24, 7.2), (8.4, 0.30, 3.4),
         (11.2, 0.36, 8.1), (-2.2, 0.26, 4.4), (-5.5, 0.32, 8.8), (14.8, 0.30, 15.2),
     ]
     for i, pos in enumerate(grass_positions, start=1):
-        spawn_mesh(f"Grass_{i:02d}", "/Engine/BasicShapes/Cylinder", pos, (0.12, 0.50, 0.12), (0.18, 0.48, 0.16), 0.90, False)
+        grass = spawn_actor(
+            "/Script/RaisingSlime.Devourable",
+            f"Prey_Grass_{i:02d}",
+            pos,
+            (0.12, 0.50, 0.12),
+        )
+        if grass:
+            grass.set_editor_property("display_name", "잔디")
+            grass.set_editor_property("kind", unreal.PreyKind.GRASS)
+            grass.set_editor_property("mass", 0.4)
+            grass.set_editor_property("trait", unreal.TraitId.NONE)
+            grass.set_editor_property("base_chance", 0.0)
+            grass.set_editor_property("respawn_cooldown", 8.0)
+            mesh = load_mesh("/Engine/BasicShapes/Cylinder")
+            grass.mesh_component.set_static_mesh(mesh)
 
     spawn_mesh("Bloom_01", "/Engine/BasicShapes/Sphere", (1.8, 0.16, 3.5), 0.28, (0.90, 0.42, 0.16), 0.38, False)
     spawn_mesh("Bloom_02", "/Engine/BasicShapes/Sphere", (7.4, 0.16, 6.8), 0.28, (0.18, 0.62, 0.68), 0.52, False)

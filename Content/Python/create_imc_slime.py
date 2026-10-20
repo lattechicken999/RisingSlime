@@ -92,9 +92,9 @@ def main():
 
     imc.map_key(look, make_key("Mouse2D"))
     imc.map_key(jump, make_key("SpaceBar"))
-    imc.map_key(attack, make_key("LeftMouseButton"))
+    # C0: spit = LMB charge/release. Attack (slime-orb) unmapped.
     imc.map_key(trait, make_key("RightMouseButton"))
-    imc.map_key(spit, make_key("Q"))
+    imc.map_key(spit, make_key("LeftMouseButton"))
     imc.map_key(cycle_trait, make_key("R"))
     imc.map_key(digest, make_key("E"))
     imc.map_key(cursor, make_key("Escape"))

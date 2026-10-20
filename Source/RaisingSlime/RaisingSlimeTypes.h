@@ -16,8 +16,38 @@ UENUM(BlueprintType)
 enum class EPreyKind : uint8
 {
 	Object UMETA(DisplayName = "사물"),
+	Grass UMETA(DisplayName = "잔디"),
+	Rock UMETA(DisplayName = "돌"),
+	Rubber UMETA(DisplayName = "고무"),
 	Creature UMETA(DisplayName = "개체")
 };
+
+/** C0/E0 combat ammo helpers (SpitOnHit specials deferred to C1/E1). */
+namespace PreyCombat
+{
+	inline bool IsHostileCombatant(EPreyKind Kind)
+	{
+		return Kind == EPreyKind::Creature;
+	}
+
+	inline bool IsNonHostilePrey(EPreyKind Kind)
+	{
+		return Kind != EPreyKind::Creature;
+	}
+
+	/** Base spit damage by ammo kind. Creature corpse is not C0 ammo. */
+	inline float SpitBaseDamage(EPreyKind Kind)
+	{
+		switch (Kind)
+		{
+		case EPreyKind::Grass: return 9.f;
+		case EPreyKind::Rock: return 14.f;
+		case EPreyKind::Rubber: return 11.f;
+		case EPreyKind::Object: return 10.f;
+		default: return 0.f;
+		}
+	}
+}
 
 namespace TraitText
 {

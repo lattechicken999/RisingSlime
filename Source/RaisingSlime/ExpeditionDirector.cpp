@@ -7,6 +7,9 @@
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
+#include "Engine/StaticMesh.h"
+#include "Components/StaticMeshComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 AExpeditionDirector::AExpeditionDirector()
 {
@@ -17,7 +20,7 @@ AExpeditionDirector::AExpeditionDirector()
 void AExpeditionDirector::BeginPlay()
 {
 	Super::BeginPlay();
-	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab traits · hold Q to charge spit.");
+	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab traits · 좌클릭 홀드 spit.");
 
 	// Ensure Hunt pickups exist even if the umap predates them.
 	UWorld* World = GetWorld();
@@ -48,7 +51,98 @@ void AExpeditionDirector::BeginPlay()
 				UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_FootTrail at runtime"));
 			}
 		}
+
+		EnsureHuntGrassAmmo();
 	}
+}
+
+void AExpeditionDirector::EnsureHuntGrassAmmo()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	TArray<AActor*> Found;
+	UGameplayStatics::GetAllActorsOfClass(World, ADevourable::StaticClass(), Found);
+	int32 GrassCount = 0;
+	for (AActor* Actor : Found)
+	{
+		if (ADevourable* Prey = Cast<ADevourable>(Actor))
+		{
+			// Normalize legacy Object labels placed by older Hunt builders.
+			if (Prey->Kind == EPreyKind::Object)
+			{
+				if (Prey->DisplayName == TEXT("돌"))
+				{
+					Prey->Kind = EPreyKind::Rock;
+				}
+				else if (Prey->DisplayName == TEXT("고무"))
+				{
+					Prey->Kind = EPreyKind::Rubber;
+				}
+				else if (Prey->DisplayName == TEXT("잔디"))
+				{
+					Prey->Kind = EPreyKind::Grass;
+				}
+			}
+			if (Prey->Kind == EPreyKind::Grass)
+			{
+				++GrassCount;
+			}
+		}
+	}
+
+	if (GrassCount > 0)
+	{
+		UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: Hunt grass ammo already present (%d)"), GrassCount);
+		return;
+	}
+
+	// Unity (x,y,z)m → UE (z,x,y)*100 — nest-adjacent patch for starting ammo.
+	static const FVector GrassLocsCm[] = {
+		FVector(220.f, 240.f, 28.f),
+		FVector(310.f, 360.f, 34.f),
+		FVector(720.f, 510.f, 24.f),
+		FVector(340.f, 840.f, 30.f),
+		FVector(810.f, 1120.f, 36.f),
+		FVector(440.f, -220.f, 26.f),
+		FVector(880.f, -550.f, 32.f),
+		FVector(180.f, 160.f, 30.f),
+	};
+
+	UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	int32 Spawned = 0;
+	for (int32 I = 0; I < UE_ARRAY_COUNT(GrassLocsCm); ++I)
+	{
+		ADevourable* Grass = World->SpawnActor<ADevourable>(GrassLocsCm[I], FRotator::ZeroRotator, Params);
+		if (!Grass)
+		{
+			continue;
+		}
+
+		Grass->DisplayName = TEXT("잔디");
+		Grass->Kind = EPreyKind::Grass;
+		Grass->Mass = 0.4f;
+		Grass->Trait = ETraitId::None;
+		Grass->BaseChance = 0.f;
+		Grass->RespawnCooldown = 8.f;
+		Grass->SetActorScale3D(FVector(0.12f, 0.12f, 0.50f));
+		if (Grass->MeshComponent && Cylinder)
+		{
+			Grass->MeshComponent->SetStaticMesh(Cylinder);
+		}
+#if WITH_EDITOR
+		Grass->SetActorLabel(FString::Printf(TEXT("Prey_Grass_%02d"), I + 1));
+#endif
+		++Spawned;
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned %d Prey_Grass ammo near nest"), Spawned);
 }
 
 void AExpeditionDirector::RegisterSlime(ASlimePawn* InSlime)

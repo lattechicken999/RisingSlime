@@ -1,4 +1,5 @@
 #include "Devourable.h"
+#include "CombatTarget.h"
 #include "CreatureAgent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
@@ -27,6 +28,7 @@ void ADevourable::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(RespawnTimer);
+		World->GetTimerManager().ClearTimer(SpitArmTimer);
 	}
 	Super::EndPlay(EndPlayReason);
 }
@@ -40,7 +42,7 @@ FString ADevourable::GetLabel() const
 	return TraitText::Name(Trait);
 }
 
-bool ADevourable::CanDevour() const
+bool ADevourable::PassesDevourAvailability() const
 {
 	if (bConsumed || bInsideGut || IsHidden())
 	{
@@ -54,17 +56,23 @@ bool ADevourable::CanDevour() const
 			return false;
 		}
 	}
+	return true;
+}
 
-	if (Kind != EPreyKind::Creature)
+bool ADevourable::CanBeDevoured() const
+{
+	if (!PassesDevourAvailability())
 	{
-		return true;
+		return false;
 	}
 
-	if (const ACreatureAgent* Agent = Cast<ACreatureAgent>(this))
+	// Non-hostile field prey (grass/rock/rubber/object): always.
+	// Hostile combatants: subclass (CreatureAgent) requires Downed.
+	if (PreyCombat::IsHostileCombatant(Kind))
 	{
-		return Agent->IsDowned();
+		return false;
 	}
-	return false;
+	return true;
 }
 
 void ADevourable::StoreHome()
@@ -77,6 +85,7 @@ void ADevourable::StoreHome()
 void ADevourable::DisableCollisionKeepVisible()
 {
 	bConsumed = true;
+	DisarmSpitProjectile();
 	SetActorEnableCollision(false);
 	SetActorTickEnabled(false);
 	SetActorHiddenInGame(false);
@@ -153,6 +162,7 @@ void ADevourable::CollectEngulfSamplePoints(TArray<FVector>& OutPoints) const
 void ADevourable::FinishGutAndRespawn()
 {
 	bInsideGut = false;
+	DisarmSpitProjectile();
 	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
 	{
 		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
@@ -169,7 +179,106 @@ void ADevourable::FinishGutAndRespawn()
 	BeginRespawnCooldown();
 }
 
-void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation, const FVector& LaunchVelocity)
+void ADevourable::ArmSpitProjectile(AActor* InstigatorActor)
+{
+	DisarmSpitProjectile();
+
+	SpitInstigator = InstigatorActor;
+	bSpitProjectileArmed = true;
+	bSpitDamageDealt = false;
+
+	if (MeshComponent)
+	{
+		MeshComponent->SetNotifyRigidBodyCollision(true);
+		MeshComponent->SetGenerateOverlapEvents(true);
+		// Block Pawn so physics Hit fires against CreatureAgent capsules.
+		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+		MeshComponent->OnComponentHit.AddUniqueDynamic(this, &ADevourable::OnSpitMeshHit);
+		MeshComponent->OnComponentBeginOverlap.AddUniqueDynamic(this, &ADevourable::OnSpitMeshBeginOverlap);
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			SpitArmTimer,
+			this,
+			&ADevourable::DisarmSpitProjectile,
+			FMath::Max(0.25f, SpitReDevourGraceSeconds),
+			false);
+	}
+}
+
+void ADevourable::DisarmSpitProjectile()
+{
+	bSpitProjectileArmed = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SpitArmTimer);
+	}
+	if (MeshComponent)
+	{
+		MeshComponent->OnComponentHit.RemoveAll(this);
+		MeshComponent->OnComponentBeginOverlap.RemoveAll(this);
+		MeshComponent->SetNotifyRigidBodyCollision(false);
+		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	}
+}
+
+void ADevourable::TryDealSpitDamage(AActor* OtherActor)
+{
+	if (!bSpitProjectileArmed || bSpitDamageDealt || !OtherActor || OtherActor == this)
+	{
+		return;
+	}
+	if (SpitInstigator.IsValid() && OtherActor == SpitInstigator.Get())
+	{
+		return;
+	}
+
+	const float Damage = GetSpitDamage();
+	if (Damage <= 0.f)
+	{
+		return;
+	}
+
+	if (ICombatTarget* Target = Cast<ICombatTarget>(OtherActor))
+	{
+		if (Target->IsCombatDowned())
+		{
+			return;
+		}
+		bSpitDamageDealt = true;
+		Target->ApplyDamage(Damage, SpitInstigator.Get(), FName(TEXT("Spit")));
+		UE_LOG(LogTemp, Display, TEXT("Devourable spit hit %s for %.1f (%s)"),
+			*OtherActor->GetName(), Damage, *GetLabel());
+	}
+}
+
+void ADevourable::OnSpitMeshHit(
+	UPrimitiveComponent* /*HitComp*/,
+	AActor* OtherActor,
+	UPrimitiveComponent* /*OtherComp*/,
+	FVector /*NormalImpulse*/,
+	const FHitResult& /*Hit*/)
+{
+	TryDealSpitDamage(OtherActor);
+}
+
+void ADevourable::OnSpitMeshBeginOverlap(
+	UPrimitiveComponent* /*OverlappedComp*/,
+	AActor* OtherActor,
+	UPrimitiveComponent* /*OtherComp*/,
+	int32 /*OtherBodyIndex*/,
+	bool /*bFromSweep*/,
+	const FHitResult& /*SweepResult*/)
+{
+	TryDealSpitDamage(OtherActor);
+}
+
+void ADevourable::ReleaseFromGutToWorld(
+	const FVector& WorldLocation,
+	const FVector& LaunchVelocity,
+	AActor* SpitInstigatorActor)
 {
 	if (UWorld* World = GetWorld())
 	{
@@ -215,8 +324,17 @@ void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation, const FVec
 		}
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("Devourable: spit grace %.2fs on %s"),
-		SpitReDevourGraceSeconds, *GetLabel());
+	if (LaunchVelocity.SizeSquared() > 1.f)
+	{
+		ArmSpitProjectile(SpitInstigatorActor);
+	}
+	else
+	{
+		DisarmSpitProjectile();
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("Devourable: spit grace %.2fs on %s (damage=%.1f)"),
+		SpitReDevourGraceSeconds, *GetLabel(), GetSpitDamage());
 }
 
 void ADevourable::BeginRespawnCooldown()
@@ -249,6 +367,8 @@ void ADevourable::RestoreScenePlacement()
 		World->GetTimerManager().ClearTimer(RespawnTimer);
 	}
 
+	DisarmSpitProjectile();
+
 	if (!bHomeStored)
 	{
 		StoreHome();
@@ -276,6 +396,7 @@ void ADevourable::RestoreScenePlacement()
 		MeshComponent->SetRelativeScale3D(FVector::OneVector);
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		MeshComponent->SetGenerateOverlapEvents(true);
+		MeshComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	}
 
 	if (ACreatureAgent* Agent = Cast<ACreatureAgent>(this))

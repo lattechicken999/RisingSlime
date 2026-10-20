@@ -83,6 +83,43 @@ void ACreatureAgent::Tick(float DeltaSeconds)
 	}
 }
 
+bool ACreatureAgent::CanBeDevoured() const
+{
+	// Living combatants never start surface-drift; only Downed.
+	return bDowned && PassesDevourAvailability();
+}
+
+void ACreatureAgent::ApplyDamage(float Amount, AActor* /*Instigator*/, FName /*DamageTag*/)
+{
+	if (bDowned || Amount <= 0.f)
+	{
+		return;
+	}
+
+	Hp -= Amount;
+	UE_LOG(LogTemp, Display, TEXT("CreatureAgent: ApplyDamage %.1f → Hp %.1f/%.0f on %s"),
+		Amount, Hp, MaxHp, *GetLabel());
+
+	if (Hp <= 0.f)
+	{
+		EnterDowned();
+	}
+}
+
+void ACreatureAgent::EnterDowned()
+{
+	if (bDowned)
+	{
+		return;
+	}
+
+	Hp = 0.f;
+	bDowned = true;
+	PoisonDps = 0.f;
+	ApplyTint(FLinearColor(0.35f, 0.32f, 0.18f));
+	UE_LOG(LogTemp, Display, TEXT("CreatureAgent: EnterDowned %s (devourable)"), *GetLabel());
+}
+
 void ACreatureAgent::TakeHit(float Damage, bool bApplyPoison, float Dps, float Duration)
 {
 	if (bDowned)
@@ -90,17 +127,17 @@ void ACreatureAgent::TakeHit(float Damage, bool bApplyPoison, float Dps, float D
 		return;
 	}
 
-	Hp -= Damage;
+	ApplyDamage(Damage, nullptr, FName(TEXT("LegacyShot")));
+	if (bDowned)
+	{
+		return;
+	}
+
 	if (bApplyPoison)
 	{
 		PoisonDps = Dps;
 		PoisonUntil = GetWorld()->GetTimeSeconds() + Duration;
 		ApplyTint(FLinearColor(0.55f, 0.9f, 0.2f));
-	}
-
-	if (Hp <= 0.f)
-	{
-		KnockDown();
 	}
 }
 
@@ -129,19 +166,7 @@ void ACreatureAgent::TickPoison(float DeltaSeconds)
 		return;
 	}
 
-	Hp -= PoisonDps * DeltaSeconds;
-	if (Hp <= 0.f)
-	{
-		KnockDown();
-	}
-}
-
-void ACreatureAgent::KnockDown()
-{
-	Hp = 0.f;
-	bDowned = true;
-	PoisonDps = 0.f;
-	ApplyTint(FLinearColor(0.35f, 0.32f, 0.18f));
+	ApplyDamage(PoisonDps * DeltaSeconds, nullptr, FName(TEXT("PoisonDoT")));
 }
 
 void ACreatureAgent::MoveTowards(const FVector& Destination, float DeltaSeconds)

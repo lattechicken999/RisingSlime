@@ -63,10 +63,14 @@ bool FRaisingSlimeS17ExpeditionMath::RunTest(const FString& Parameters)
 	const float BeeHp = 36.f;
 	TestEqual(TEXT("bee MaxHp 36"), BeeHp, 36.f);
 
-	// Shot math: two 14 + partial third, or confirmed poison 18 + DPS 8
-	TestTrue(TEXT("two shots 14+14 < 36"), 14.f + 14.f < BeeHp);
-	TestTrue(TEXT("three shots 14*2 + partial"), 14.f * 2.f + 8.f >= BeeHp);
-	TestTrue(TEXT("poison bolt 18 then DPS"), 18.f + 8.f * 2.25f >= BeeHp);
+	// C0 spit ammo table (E0): grass≈9 → 4–5 hits; rock≈14 → ~3 hits
+	TestTrue(TEXT("grass spit base 9"), FMath::IsNearlyEqual(PreyCombat::SpitBaseDamage(EPreyKind::Grass), 9.f, 0.01f));
+	TestTrue(TEXT("rock spit base 14"), FMath::IsNearlyEqual(PreyCombat::SpitBaseDamage(EPreyKind::Rock), 14.f, 0.01f));
+	TestTrue(TEXT("four grass < 36"), 9.f * 4.f < BeeHp);
+	TestTrue(TEXT("five grass >= 36"), 9.f * 5.f >= BeeHp);
+	TestTrue(TEXT("three rock >= 36"), 14.f * 3.f >= BeeHp);
+	TestTrue(TEXT("hostile creature not non-hostile"), PreyCombat::IsHostileCombatant(EPreyKind::Creature));
+	TestTrue(TEXT("grass is non-hostile prey"), PreyCombat::IsNonHostilePrey(EPreyKind::Grass));
 
 	return true;
 }

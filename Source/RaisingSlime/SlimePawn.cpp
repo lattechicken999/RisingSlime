@@ -181,10 +181,7 @@ void ASlimePawn::BindEnhancedInput()
 	{
 		EIC->BindAction(PC->GetJumpAction(), ETriggerEvent::Started, this, &ASlimePawn::OnJumpStarted);
 	}
-	if (PC->GetAttackAction())
-	{
-		EIC->BindAction(PC->GetAttackAction(), ETriggerEvent::Started, this, &ASlimePawn::OnAttack);
-	}
+	// C0: no slime-orb primary — AttackAction unbound. Spit is left-click charge/release.
 	if (PC->GetTraitAction())
 	{
 		EIC->BindAction(PC->GetTraitAction(), ETriggerEvent::Started, this, &ASlimePawn::OnTrait);
@@ -265,14 +262,16 @@ void ASlimePawn::Tick(float DeltaSeconds)
 			bJumpQueued = true;
 		}
 
-		// Q charge spit: press starts, release fires (cap at Director SpitChargeMaxSeconds).
-		const bool bQDown = PC->IsInputKeyDown(EKeys::Q);
-		if (bQDown && !bSpitKeyHeld)
+		// Left-click charge spit: press starts, release fires (Q unused for spit).
+		// Skip while cursor unlocked so Focus/UI clicks do not spit.
+		const bool bLmbDown = !PC->IsCursorUnlocked()
+			&& PC->IsInputKeyDown(EKeys::LeftMouseButton);
+		if (bLmbDown && !bSpitKeyHeld)
 		{
 			bSpitKeyHeld = true;
 			BeginSpitCharge();
 		}
-		else if (!bQDown && bSpitKeyHeld)
+		else if (!bLmbDown && bSpitKeyHeld)
 		{
 			bSpitKeyHeld = false;
 			ReleaseSpitCharge();
@@ -419,11 +418,7 @@ void ASlimePawn::OnJumpStarted(const FInputActionValue& /*Value*/)
 
 void ASlimePawn::OnAttack(const FInputActionValue& /*Value*/)
 {
-	if (IsCombatBlocked())
-	{
-		return;
-	}
-	Attack();
+	// C0: slime-orb Attack retired — primary fire is left-click spit charge.
 }
 
 void ASlimePawn::OnTrait(const FInputActionValue& /*Value*/)
@@ -449,12 +444,23 @@ void ASlimePawn::OnCycleTrait(const FInputActionValue& /*Value*/)
 
 void ASlimePawn::OnSpitStarted(const FInputActionValue& /*Value*/)
 {
+	if (const ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
+	{
+		if (PC->IsCursorUnlocked())
+		{
+			return;
+		}
+	}
 	bSpitKeyHeld = true;
 	BeginSpitCharge();
 }
 
 void ASlimePawn::OnSpitCompleted(const FInputActionValue& /*Value*/)
 {
+	if (!bSpitKeyHeld && !bSpitCharging)
+	{
+		return;
+	}
 	bSpitKeyHeld = false;
 	ReleaseSpitCharge();
 }
@@ -464,6 +470,13 @@ bool ASlimePawn::CanStartSpitCharge() const
 	if (IsMenuBlocking())
 	{
 		return false;
+	}
+	if (const ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
+	{
+		if (PC->IsCursorUnlocked())
+		{
+			return false;
+		}
 	}
 	if (const AExpeditionDirector* Director = FindDirector())
 	{
@@ -563,46 +576,7 @@ void ASlimePawn::OnFocus(const FInputActionValue& /*Value*/)
 
 void ASlimePawn::Attack()
 {
-	const float Now = GetWorld()->GetTimeSeconds();
-	if (Now < NextAttackTime || !MainCamera)
-	{
-		return;
-	}
-	NextAttackTime = Now + 0.42f;
-
-	AExpeditionDirector* Director = FindDirector();
-	const FVector CamLoc = MainCamera->GetComponentLocation();
-	const FVector CamFwd = MainCamera->GetForwardVector();
-	FVector AimPoint = CamLoc + CamFwd * 3000.f;
-
-	FHitResult Hit;
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(SlimeAim), false, this);
-	if (GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, AimPoint, ECC_Visibility, Params))
-	{
-		AimPoint = Hit.ImpactPoint;
-	}
-
-	FVector Origin = BodyMesh->GetComponentLocation();
-	FVector Direction = (AimPoint - Origin).GetSafeNormal();
-	if (Direction.IsNearlyZero())
-	{
-		Direction = CamFwd;
-	}
-	Origin += Direction * (GetBodySize() * 0.7f * RaisingSlimeUnits::MetersToCm);
-
-	const bool bPoison = Director && Director->GetActiveTrait() == ETraitId::Poison;
-	const bool bStable = bPoison && Director->IsActiveConfirmed();
-	const float Damage = bStable ? 18.f : 14.f;
-	const float Dps = bStable ? 8.f : 4.f;
-	const float Dur = bStable ? 3.2f : 2.2f;
-
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.Owner = this;
-	SpawnParams.Instigator = GetInstigator();
-	if (ASlimeShot* Shot = GetWorld()->SpawnActor<ASlimeShot>(Origin, Direction.Rotation(), SpawnParams))
-	{
-		Shot->Launch(this, Direction, Damage, bPoison, bPoison ? Dps : 0.f, bPoison ? Dur : 0.f);
-	}
+	// C0: no slime-orb primary. Combat damage comes from gut spit projectiles.
 }
 
 void ASlimePawn::UseTrait()

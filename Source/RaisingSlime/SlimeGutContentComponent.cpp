@@ -310,7 +310,7 @@ bool USlimeGutContentComponent::TrySpitUnabsorbedPrey(
 		OutLabel = Prey->GetLabel();
 		const bool bWasHeld = (E.Phase == EGutPhase::Held);
 
-		Prey->ReleaseFromGutToWorld(LaunchOrigin, LaunchVelocity);
+		Prey->ReleaseFromGutToWorld(LaunchOrigin, LaunchVelocity, Owner);
 
 		Entries.RemoveAt(I);
 
