@@ -46,6 +46,11 @@ namespace
 		}
 	}
 
+	const TCHAR* FootOozePath()
+	{
+		return TEXT("/Game/FX/NS_FootOoze_Fluids.NS_FootOoze_Fluids");
+	}
+
 	UNiagaraSystem* LoadSplash(ESlimeSplashKind Kind)
 	{
 		if (UNiagaraSystem* Fluids = LoadObject<UNiagaraSystem>(nullptr, PathFor(Kind)))
@@ -53,6 +58,11 @@ namespace
 			return Fluids;
 		}
 		return LoadObject<UNiagaraSystem>(nullptr, LegacyPathFor(Kind));
+	}
+
+	UNiagaraSystem* LoadFootOoze()
+	{
+		return LoadObject<UNiagaraSystem>(nullptr, FootOozePath());
 	}
 
 	void ScreenNote(UWorld* World, const FString& Msg, const FColor& Color)
@@ -73,9 +83,10 @@ void SlimeVfx::Warmup(UWorld* World)
 	const bool bDevour = LoadSplash(ESlimeSplashKind::Devour) != nullptr;
 	const bool bSpit = LoadSplash(ESlimeSplashKind::Spit) != nullptr;
 	const bool bDeath = LoadSplash(ESlimeSplashKind::Death) != nullptr;
+	const bool bOoze = LoadFootOoze() != nullptr;
 	const FString Msg = FString::Printf(
-		TEXT("SlimeVfx: warmup devour=%d spit=%d death=%d (삼키면/토하면/죽으면 다시 로그)"),
-		bDevour ? 1 : 0, bSpit ? 1 : 0, bDeath ? 1 : 0);
+		TEXT("SlimeVfx: warmup devour=%d spit=%d death=%d footOoze=%d"),
+		bDevour ? 1 : 0, bSpit ? 1 : 0, bDeath ? 1 : 0, bOoze ? 1 : 0);
 	ScreenNote(World, Msg, (bDevour && bSpit && bDeath) ? FColor::Green : FColor::Orange);
 }
 
@@ -121,4 +132,60 @@ void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Locatio
 		World,
 		FString::Printf(TEXT("SlimeVfx: Fluids splash %s scale=%.2f"), LabelFor(Kind), Scale),
 		FColor::Cyan);
+}
+
+void SlimeVfx::TickContactOoze(
+	UWorld* World,
+	AActor* Owner,
+	float& InOutCooldown,
+	const FVector& FeetLocation,
+	float PlanarSpeedCm,
+	bool bGrounded,
+	float BodySize,
+	float Dt)
+{
+	if (!World || !Owner)
+	{
+		return;
+	}
+
+	InOutCooldown = FMath::Max(0.f, InOutCooldown - Dt);
+
+	// Viscous drip while sliding on contact — idle / air = silent.
+	constexpr float MinSpeedCm = 28.f;
+	if (!bGrounded || PlanarSpeedCm < MinSpeedCm)
+	{
+		return;
+	}
+	if (InOutCooldown > 0.f)
+	{
+		return;
+	}
+
+	UNiagaraSystem* System = LoadFootOoze();
+	if (!System)
+	{
+		return;
+	}
+
+	// Faster crawl → slightly shorter gap; stay lazy (ooze, not spray).
+	const float Speed01 = FMath::Clamp((PlanarSpeedCm - MinSpeedCm) / 420.f, 0.f, 1.f);
+	InOutCooldown = FMath::Lerp(0.38f, 0.22f, Speed01);
+
+	// Small scale — must not read as spit/death splash or devour pop.
+	const float Scale = FMath::Clamp(0.12f + BodySize * 0.08f + Speed01 * 0.06f, 0.10f, 0.28f);
+	const FVector SpawnAt = FeetLocation + FVector(0.f, 0.f, 2.f);
+
+	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+		World,
+		System,
+		SpawnAt,
+		FRotator::ZeroRotator,
+		FVector(Scale),
+		true,
+		true,
+		ENCPoolMethod::AutoRelease,
+		true);
+
+	UE_LOG(LogTemp, Verbose, TEXT("SlimeVfx: contact ooze scale=%.2f speed=%.0f"), Scale, PlanarSpeedCm);
 }

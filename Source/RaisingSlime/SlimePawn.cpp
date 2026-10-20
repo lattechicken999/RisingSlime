@@ -330,6 +330,21 @@ void ASlimePawn::Tick(float DeltaSeconds)
 		++Steps;
 	}
 
+	// Subtle viscous contact ooze while grounded + crawling (not splash / not devour-pop).
+	if (Movement)
+	{
+		const float PlanarSpeed = Movement->GetPlanarVelocity().Size();
+		SlimeVfx::TickContactOoze(
+			GetWorld(),
+			this,
+			ContactOozeCooldown,
+			GetActorLocation(),
+			PlanarSpeed,
+			Movement->IsGrounded(),
+			GetBodySize(),
+			DeltaSeconds);
+	}
+
 	ApplyBodySize();
 	SetActorRotation(FRotator(0.f, Yaw, 0.f));
 	MainCamera->SetRelativeRotation(FRotator(Pitch, 0.f, 0.f));

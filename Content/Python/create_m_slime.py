@@ -10,13 +10,14 @@ CORE = unreal.LinearColor(0.05, 0.35, 0.08, 1.0)
 F0 = 0.012
 THICKNESS_CM = 10.0
 ROUGHNESS = 0.82
-# Soft volume: denser center, softer rim (still readable green).
-OPACITY_EDGE = 0.62
-OPACITY_CENTER = 0.93
-EMISSIVE_BODY = 0.10
+# Soft volume: translucent enough to read surface-drift prey inside, still jelly-green.
+# (Was 0.62/0.93 — too opaque for gut stick→center drift.)
+OPACITY_EDGE = 0.34
+OPACITY_CENTER = 0.58
+EMISSIVE_BODY = 0.08
 # Soft rim light (pow 1-facing) — jelly edge glow without hard specular.
-RIM_POWER = 2.4
-RIM_STRENGTH = 0.35
+RIM_POWER = 2.2
+RIM_STRENGTH = 0.28
 RIM_COLOR = unreal.LinearColor(0.75, 1.0, 0.70, 1.0)
 
 

@@ -150,6 +150,8 @@ protected:
 	float Channel01 = 0.f;
 	float HardenUntil = 0.f;
 	float HardenCooldown = 0.f;
+	/** Rate-limit for viscous foot/contact ooze Niagara (SlimeVfx). */
+	float ContactOozeCooldown = 0.f;
 	bool bJumpQueued = false;
 	bool bEnhancedInputBound = false;
 	bool bLoggedMoveInput = false;
