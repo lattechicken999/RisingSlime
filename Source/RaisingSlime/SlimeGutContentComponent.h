@@ -36,6 +36,20 @@ public:
 	void BeginDissolveAll();
 	void ClearImmediate();
 
+	/**
+	 * Spit one unabsorbed prey (Held or Contained, not Dissolving) forward into the world.
+	 * LIFO. LaunchVelocity applied after place. OutMassCommitted = Contained mass was in RunMass.
+	 */
+	bool TrySpitUnabsorbedPrey(
+		const FVector& LaunchOrigin,
+		const FVector& LaunchVelocity,
+		float& OutMass,
+		ETraitId& OutTrait,
+		bool& bOutMassCommitted,
+		FString& OutLabel);
+
+	bool HasSpittableGutPrey() const;
+
 	int32 GetGutCount() const { return Entries.Num(); }
 	float GetSwallowSwellBonus() const;
 	float GetContainedMass() const;

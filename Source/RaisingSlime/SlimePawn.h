@@ -77,7 +77,25 @@ public:
 	void AddImpact(float Amount);
 	void PlayDevourSplash(const FVector& AtLocation);
 	void PlaySpitSplash();
+	/** Forward spit VFX; Charge01 scales distance/scale of the burst. */
+	void PlaySpitSplashForward(float Charge01);
 	void PlayDeathSplash();
+
+	/**
+	 * Opt-in foot slime trail (item / trait). Default OFF —
+	 * normal WASD must not leave trail marks. Gate name kept for save/cheat compat.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Slime|Vfx")
+	void SetFootOozeFromItem(bool bEnabled) { bFootOozeFromItem = bEnabled; }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime|Vfx")
+	bool IsFootOozeFromItem() const { return bFootOozeFromItem; }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime|Vfx")
+	void SetFootTrailFromItem(bool bEnabled) { SetFootOozeFromItem(bEnabled); }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime|Vfx")
+	bool IsFootTrailFromItem() const { return IsFootOozeFromItem(); }
 
 	float GetBodySize() const;
 
@@ -91,9 +109,16 @@ protected:
 	void OnAttack(const struct FInputActionValue& Value);
 	void OnTrait(const struct FInputActionValue& Value);
 	void OnCycleTrait(const struct FInputActionValue& Value);
+	void OnSpitStarted(const struct FInputActionValue& Value);
+	void OnSpitCompleted(const struct FInputActionValue& Value);
 	void OnTraitPanel(const struct FInputActionValue& Value);
 	void OnCursor(const struct FInputActionValue& Value);
 	void OnFocus(const struct FInputActionValue& Value);
+	void BeginSpitCharge();
+	void ReleaseSpitCharge();
+	void CancelSpitCharge();
+	float GetSpitCharge01() const;
+	bool CanStartSpitCharge() const;
 
 	void ApplyLookFromRawPixels(const FVector2D& PixelDelta);
 	void UpdateAim();
@@ -150,9 +175,17 @@ protected:
 	float Channel01 = 0.f;
 	float HardenUntil = 0.f;
 	float HardenCooldown = 0.f;
+	/** Rate-limit for foot slime trail marks (SlimeVfx::TickFootSlimeTrail). */
+	float ContactOozeCooldown = 0.f;
+	/** Item/trait-only gate. Default false — no trail on normal move. */
+	bool bFootOozeFromItem = false;
 	bool bJumpQueued = false;
 	bool bEnhancedInputBound = false;
 	bool bLoggedMoveInput = false;
+	bool bSpitCharging = false;
+	bool bSpitKeyHeld = false;
+	float SpitChargeSeconds = 0.f;
+	float SpitChargeLogAccum = 0.f;
 
 	FVector2D MoveInput = FVector2D::ZeroVector;
 

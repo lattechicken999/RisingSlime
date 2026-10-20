@@ -2,8 +2,11 @@
 #include "Devourable.h"
 #include "SlimePawn.h"
 #include "SlimeGutContentComponent.h"
+#include "TraitPurgePickup.h"
+#include "FootOozePickup.h"
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
+#include "Engine/World.h"
 
 AExpeditionDirector::AExpeditionDirector()
 {
@@ -14,7 +17,38 @@ AExpeditionDirector::AExpeditionDirector()
 void AExpeditionDirector::BeginPlay()
 {
 	Super::BeginPlay();
-	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab으로 형질을 본다.");
+	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab traits · hold Q to charge spit.");
+
+	// Ensure Hunt pickups exist even if the umap predates them.
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		if (!UGameplayStatics::GetActorOfClass(World, ATraitPurgePickup::StaticClass()))
+		{
+			const FVector Loc(250.f, -180.f, 40.f);
+			if (ATraitPurgePickup* Pickup = World->SpawnActor<ATraitPurgePickup>(Loc, FRotator::ZeroRotator, Params))
+			{
+#if WITH_EDITOR
+				Pickup->SetActorLabel(TEXT("Pickup_TraitPurge"));
+#endif
+				UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_TraitPurge at runtime"));
+			}
+		}
+		if (!UGameplayStatics::GetActorOfClass(World, AFootOozePickup::StaticClass()))
+		{
+			// Far from nest so spawn-walk does not accidentally enable trail marks.
+			const FVector Loc(-520.f, 380.f, 40.f);
+			if (AFootOozePickup* Pickup = World->SpawnActor<AFootOozePickup>(Loc, FRotator::ZeroRotator, Params))
+			{
+#if WITH_EDITOR
+				Pickup->SetActorLabel(TEXT("Pickup_FootTrail"));
+#endif
+				UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_FootTrail at runtime"));
+			}
+		}
+	}
 }
 
 void AExpeditionDirector::RegisterSlime(ASlimePawn* InSlime)
@@ -263,9 +297,113 @@ void AExpeditionDirector::Spit(ETraitId Trait)
 	Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *TraitText::Name(Trait));
 	if (Slime)
 	{
-		Slime->PlaySpitSplash();
+		Slime->PlaySpitSplashForward(0.55f);
 	}
 }
+
+void AExpeditionDirector::RefundGutSpit(float Mass, ETraitId Trait, bool bMassCommitted)
+{
+	if (bMassCommitted)
+	{
+		RunMass = FMath::Max(0.f, RunMass - Mass);
+		if (Slime)
+		{
+			Slime->RefreshBody();
+		}
+	}
+
+	// Trait was granted Unstable at swallow — reclaim one if not already Confirmed.
+	if (Trait != ETraitId::None && !Confirmed.Contains(Trait))
+	{
+		const int32 Idx = Unstable.IndexOfByKey(Trait);
+		if (Idx != INDEX_NONE)
+		{
+			Unstable.RemoveAt(Idx);
+		}
+	}
+	SyncActiveFromConfirmed();
+}
+
+bool AExpeditionDirector::CanSpitAnything() const
+{
+	if (Slime && Slime->GetGutContent() && Slime->GetGutContent()->HasSpittableGutPrey())
+	{
+		return true;
+	}
+	return Confirmed.Num() > 0;
+}
+
+bool AExpeditionDirector::SpitActiveTrait(float Charge01)
+{
+	SyncActiveFromConfirmed();
+	if (Confirmed.Num() == 0 || Active == ETraitId::None)
+	{
+		Status = TEXT("토해낼 확정 형질이 없다.");
+		return false;
+	}
+
+	const ETraitId Trait = Confirmed[0];
+	if (Confirmed.Remove(Trait) <= 0)
+	{
+		return false;
+	}
+	SyncActiveFromConfirmed();
+	Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *TraitText::Name(Trait));
+	if (Slime)
+	{
+		Slime->PlaySpitSplashForward(Charge01);
+	}
+	return true;
+}
+
+bool AExpeditionDirector::SpitActive(float Charge01)
+{
+	Charge01 = FMath::Clamp(Charge01, 0.f, 1.f);
+	const float Dist = FMath::Lerp(SpitDistMinCm, SpitDistMaxCm, Charge01);
+
+	// Rule: gut unabsorbed prey first → forward launch; else Confirmed Active trait.
+	if (Slime && Slime->GetGutContent())
+	{
+		FVector HorizFwd = Slime->GetActorForwardVector();
+		HorizFwd.Z = 0.f;
+		if (!HorizFwd.Normalize())
+		{
+			HorizFwd = FVector::ForwardVector;
+		}
+
+		const float PitchRad = FMath::DegreesToRadians(SpitLaunchPitchDegrees);
+		const FVector LaunchDir =
+			(HorizFwd * FMath::Cos(PitchRad) + FVector::UpVector * FMath::Sin(PitchRad)).GetSafeNormal();
+		const float BodyR = Slime->GetBodySize() * 50.f;
+		const FVector Origin = Slime->GetActorLocation()
+			+ HorizFwd * (BodyR + 55.f)
+			+ FVector(0.f, 0.f, 45.f);
+
+		constexpr float GravityCm = 980.f;
+		const float Sin2A = FMath::Sin(2.f * PitchRad);
+		float Speed = (Sin2A > 0.05f)
+			? FMath::Sqrt(FMath::Max(1.f, Dist) * GravityCm / Sin2A)
+			: (Dist / 0.55f);
+		Speed = FMath::Clamp(Speed, 180.f, 2800.f);
+		const FVector LaunchVel = LaunchDir * Speed;
+
+		float Mass = 0.f;
+		ETraitId Trait = ETraitId::None;
+		bool bMassCommitted = false;
+		FString Label;
+		if (Slime->GetGutContent()->TrySpitUnabsorbedPrey(
+				Origin, LaunchVel, Mass, Trait, bMassCommitted, Label))
+		{
+			RefundGutSpit(Mass, Trait, bMassCommitted);
+			Status = FString::Printf(TEXT("%s forward spit (%.0fcm, charge=%.0f%%)"),
+				*Label, Dist, Charge01 * 100.f);
+			Slime->PlaySpitSplashForward(Charge01);
+			return true;
+		}
+	}
+	return SpitActiveTrait(Charge01);
+}
+
 
 bool AExpeditionDirector::PurgeConfirmedTrait(ETraitId Trait)
 {

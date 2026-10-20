@@ -57,6 +57,34 @@ public:
 	void CycleActive();
 	bool TryConfirm(ETraitId Trait);
 	void Spit(ETraitId Trait);
+
+	/**
+	 * Field spit: gut prey first (forward launch), else Active Confirmed[0] trait remove + forward VFX.
+	 * Charge01 in [0,1] scales launch distance up to SpitDistMaxCm.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
+	bool SpitActive(float Charge01 = 0.55f);
+
+	bool CanSpitAnything() const;
+
+	/** Remove Active Confirmed[0] only (no gut). Forward VFX uses Charge01. */
+	bool SpitActiveTrait(float Charge01);
+
+	void RefundGutSpit(float Mass, ETraitId Trait, bool bMassCommitted);
+
+	/** Charge→distance knobs (cm / seconds). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spit|Charge", meta = (ClampMin = "0.2", ClampMax = "3"))
+	float SpitChargeMaxSeconds = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spit|Charge", meta = (ClampMin = "50", ClampMax = "800"))
+	float SpitDistMinCm = 200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spit|Charge", meta = (ClampMin = "200", ClampMax = "2500"))
+	float SpitDistMaxCm = 1200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spit|Charge", meta = (ClampMin = "0", ClampMax = "35"))
+	float SpitLaunchPitchDegrees = 12.f;
+
 	bool PurgeConfirmedTrait(ETraitId Trait);
 	bool ReorderConfirmed(ETraitId Dragged, ETraitId DropTarget);
 	void SyncActiveFromConfirmed();

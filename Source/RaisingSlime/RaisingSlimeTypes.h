@@ -49,6 +49,7 @@ namespace RaisingSlimeUnits
 	constexpr float MetersToCm = 100.f;
 	constexpr float FixedStep = 0.02f;
 	constexpr int32 MaxSubsteps = 5;
+	/** Base airborne gravity (cm/s²). Movement may scale this near apex / on fall. */
 	constexpr float SlimeGravityCm = -2000.f;
 	constexpr float CreatureGravityCm = -981.f;
 	constexpr float LookDegreesPerPixel = 0.22f;
@@ -63,6 +64,7 @@ namespace RaisingSlimeUnits
 	constexpr float NestSpawnZCm = 16.f;
 	constexpr float MoveSpeedMaxMps = 6.2f;
 	constexpr float MoveDecelMps2 = 36.f;
-	constexpr float JumpSpeedMps = 7.2f;
-	constexpr float GravityMps2 = 20.f; // |SlimeGravityCm| / 100
+	/** Default takeoff; runtime uses USlimeMovementComponent::JumpSpeedMps (may differ). */
+	constexpr float JumpSpeedMps = 7.8f;
+	constexpr float GravityMps2 = 20.f; // |SlimeGravityCm| / 100 (base; fall/apex scales apply in movement)
 }

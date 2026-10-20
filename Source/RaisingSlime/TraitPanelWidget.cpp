@@ -1,6 +1,8 @@
 #include "TraitPanelWidget.h"
 #include "TraitPanelRowWidget.h"
 #include "ExpeditionDirector.h"
+#include "SlimePawn.h"
+#include "SlimeGutContentComponent.h"
 #include "RaisingSlimeHud.h"
 #include "Blueprint/WidgetTree.h"
 #include "Blueprint/DragDropOperation.h"
@@ -99,6 +101,16 @@ void UTraitPanelWidget::RebuildLayout()
 	ConfirmedBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ConfirmedBox"));
 	AddPad(ConfirmedBox, 10.f);
 
+	SpitButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("SpitButton"));
+	{
+		UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SpitLabel"));
+		Label->SetText(FText::FromString(TEXT("토해내기 (Q) — gut 우선 / 없으면 활성")));
+		Label->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+		SpitButton->AddChild(Label);
+		SpitButton->OnClicked.AddDynamic(this, &UTraitPanelWidget::OnSpitClicked);
+	}
+	AddPad(SpitButton, 12.f);
+
 	CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseButton"));
 	{
 		UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CloseLabel"));
@@ -107,7 +119,7 @@ void UTraitPanelWidget::RebuildLayout()
 		CloseButton->AddChild(Label);
 		CloseButton->OnClicked.AddDynamic(this, &UTraitPanelWidget::OnCloseClicked);
 	}
-	AddPad(CloseButton, 14.f);
+	AddPad(CloseButton, 8.f);
 }
 
 void UTraitPanelWidget::AddTraitRow(ETraitId Trait, int32 Index)
@@ -149,8 +161,20 @@ void UTraitPanelWidget::Refresh()
 	if (HintLine)
 	{
 		HintLine->SetText(FText::FromString(Director->HasTraitPurgeItem()
-			? TEXT("위가 우선·활성. 드래그로 순서 변경. 삭제는 보유 아이템으로.")
-			: TEXT("위가 우선·활성. 드래그로 순서 변경. (삭제 아이템 없음)")));
+			? TEXT("Q: gut 먹이 우선→없으면 Active. 드래그 순서. 삭제=아이템.")
+			: TEXT("Q: gut 먹이 우선→없으면 Active. 드래그 순서. (삭제 아이템 없음)")));
+	}
+	if (SpitButton)
+	{
+		bool bGut = false;
+		if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(UGameplayStatics::GetPlayerPawn(GetWorld(), 0)))
+		{
+			if (USlimeGutContentComponent* Gut = SoftSlime->GetGutContent())
+			{
+				bGut = Gut->HasSpittableGutPrey();
+			}
+		}
+		SpitButton->SetIsEnabled(bGut || Director->GetConfirmedTraits().Num() > 0);
 	}
 
 	ClearChildren(ConfirmedBox);
@@ -239,6 +263,16 @@ void UTraitPanelWidget::HandleReorder(ETraitId Dragged, ETraitId DropTarget)
 	if (AExpeditionDirector* Director = FindDirector())
 	{
 		Director->ReorderConfirmed(Dragged, DropTarget);
+		Refresh();
+	}
+}
+
+void UTraitPanelWidget::OnSpitClicked()
+{
+	if (AExpeditionDirector* Director = FindDirector())
+	{
+		// Panel spit ≈ mid charge (no hold gesture on button).
+		Director->SpitActive(0.55f);
 		Refresh();
 	}
 }

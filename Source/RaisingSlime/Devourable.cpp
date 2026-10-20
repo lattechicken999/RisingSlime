@@ -47,6 +47,14 @@ bool ADevourable::CanDevour() const
 		return false;
 	}
 
+	if (const UWorld* World = GetWorld())
+	{
+		if (World->GetTimeSeconds() < SpitGraceUntilTime)
+		{
+			return false;
+		}
+	}
+
 	if (Kind != EPreyKind::Creature)
 	{
 		return true;
@@ -74,6 +82,7 @@ void ADevourable::DisableCollisionKeepVisible()
 	SetActorHiddenInGame(false);
 	if (MeshComponent)
 	{
+		MeshComponent->SetSimulatePhysics(false);
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		MeshComponent->SetGenerateOverlapEvents(false);
 		MeshComponent->SetVisibility(true);
@@ -160,6 +169,56 @@ void ADevourable::FinishGutAndRespawn()
 	BeginRespawnCooldown();
 }
 
+void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation, const FVector& LaunchVelocity)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RespawnTimer);
+		// Bugfix: spit was immediately re-devourable (CanDevour true + overlap). Grace ~1.5s.
+		SpitGraceUntilTime = World->GetTimeSeconds() + FMath::Max(0.f, SpitReDevourGraceSeconds);
+	}
+	else
+	{
+		SpitGraceUntilTime = -1.f;
+	}
+
+	bInsideGut = false;
+	bConsumed = false;
+
+	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
+
+	SetActorLocation(WorldLocation);
+	SetActorScale3D(HomeScale3D);
+	SetActorHiddenInGame(false);
+	SetActorEnableCollision(true);
+	SetActorTickEnabled(true);
+
+	if (MeshComponent)
+	{
+		MeshComponent->SetVisibility(true);
+		MeshComponent->SetHiddenInGame(false);
+		MeshComponent->SetRelativeScale3D(FVector::OneVector);
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		MeshComponent->SetGenerateOverlapEvents(true);
+		MeshComponent->SetSimulatePhysics(LaunchVelocity.SizeSquared() > 1.f);
+		MeshComponent->SetEnableGravity(true);
+		if (LaunchVelocity.SizeSquared() > 1.f)
+		{
+			MeshComponent->SetPhysicsLinearVelocity(LaunchVelocity);
+		}
+		else
+		{
+			MeshComponent->SetSimulatePhysics(false);
+		}
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("Devourable: spit grace %.2fs on %s"),
+		SpitReDevourGraceSeconds, *GetLabel());
+}
+
 void ADevourable::BeginRespawnCooldown()
 {
 	if (!bConsumed && !bInsideGut)
@@ -202,6 +261,7 @@ void ADevourable::RestoreScenePlacement()
 
 	bConsumed = false;
 	bInsideGut = false;
+	SpitGraceUntilTime = -1.f;
 	SetActorTransform(HomeTransform);
 	SetActorScale3D(HomeScale3D);
 	SetActorHiddenInGame(false);
@@ -210,6 +270,7 @@ void ADevourable::RestoreScenePlacement()
 
 	if (MeshComponent)
 	{
+		MeshComponent->SetSimulatePhysics(false);
 		MeshComponent->SetVisibility(true);
 		MeshComponent->SetHiddenInGame(false);
 		MeshComponent->SetRelativeScale3D(FVector::OneVector);

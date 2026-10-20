@@ -259,6 +259,80 @@ void USlimeGutContentComponent::TickHeldDrift(FGutEntry& Entry, float Dt)
 	}
 }
 
+bool USlimeGutContentComponent::HasSpittableGutPrey() const
+{
+	for (const FGutEntry& E : Entries)
+	{
+		if ((E.Phase == EGutPhase::Held || E.Phase == EGutPhase::Contained) && E.Prey.IsValid())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool USlimeGutContentComponent::TrySpitUnabsorbedPrey(
+	const FVector& LaunchOrigin,
+	const FVector& LaunchVelocity,
+	float& OutMass,
+	ETraitId& OutTrait,
+	bool& bOutMassCommitted,
+	FString& OutLabel)
+{
+	OutMass = 0.f;
+	OutTrait = ETraitId::None;
+	bOutMassCommitted = false;
+	OutLabel.Reset();
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return false;
+	}
+
+	for (int32 I = Entries.Num() - 1; I >= 0; --I)
+	{
+		FGutEntry& E = Entries[I];
+		if (E.Phase != EGutPhase::Held && E.Phase != EGutPhase::Contained)
+		{
+			continue;
+		}
+		ADevourable* Prey = E.Prey.Get();
+		if (!Prey)
+		{
+			Entries.RemoveAt(I);
+			continue;
+		}
+
+		OutMass = E.Mass;
+		OutTrait = E.Trait;
+		bOutMassCommitted = E.bMassCommitted;
+		OutLabel = Prey->GetLabel();
+		const bool bWasHeld = (E.Phase == EGutPhase::Held);
+
+		Prey->ReleaseFromGutToWorld(LaunchOrigin, LaunchVelocity);
+
+		Entries.RemoveAt(I);
+
+		if (ASlimePawn* Slime = Cast<ASlimePawn>(Owner))
+		{
+			if (USlimeSoftVolumeComponent* Soft = Slime->GetSoftVolume())
+			{
+				Soft->ClearEngulfClimbTarget();
+			}
+		}
+
+		UE_LOG(LogTemp, Display,
+			TEXT("SlimeGut: launched %s (phase=%s massCommitted=%d speed=%.0f)"),
+			*OutLabel,
+			bWasHeld ? TEXT("Held") : TEXT("Contained"),
+			bOutMassCommitted ? 1 : 0,
+			LaunchVelocity.Size());
+		return true;
+	}
+	return false;
+}
+
 void USlimeGutContentComponent::BeginDissolveAll()
 {
 	for (FGutEntry& E : Entries)

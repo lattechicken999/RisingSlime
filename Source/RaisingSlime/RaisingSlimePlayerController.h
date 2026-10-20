@@ -37,6 +37,7 @@ public:
 	UInputAction* GetTraitAction() const { return TraitAction; }
 	UInputAction* GetCycleTraitAction() const { return CycleTraitAction; }
 	UInputAction* GetTraitPanelAction() const { return TraitPanelAction; }
+	UInputAction* GetSpitAction() const { return SpitAction; }
 	UInputAction* GetCursorAction() const { return CursorAction; }
 	UInputAction* GetFocusAction() const { return FocusAction; }
 
@@ -44,9 +45,19 @@ public:
 	UFUNCTION(Exec)
 	void GiveTraitPurgeItem();
 
+	/** Dev cheat: enable item foot slime trail on possessed slime. */
+	UFUNCTION(Exec)
+	void GiveFootOozeItem();
+
+	/** Alias — same as GiveFootOozeItem (trail, not Fluids ooze). */
+	UFUNCTION(Exec)
+	void GiveFootTrailItem();
+
 protected:
 	void BuildRuntimeInput();
 	bool TryLoadAssetInput();
+	/** No sprint/crouch in this game — strip Shift keys if any IMC leftover maps them. */
+	void StripShiftSprintMappings();
 	void ApplyMappingContext();
 	void ApplyCursorState();
 	void NotifyPossessedPawnToBindInput();
@@ -68,6 +79,8 @@ protected:
 	TObjectPtr<UInputAction> CycleTraitAction;
 	UPROPERTY()
 	TObjectPtr<UInputAction> TraitPanelAction;
+	UPROPERTY()
+	TObjectPtr<UInputAction> SpitAction;
 	UPROPERTY()
 	TObjectPtr<UInputAction> CursorAction;
 	UPROPERTY()

@@ -210,13 +210,17 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 	{
 		if (bGrounded)
 		{
-			VerticalVelocity = (bBounce && bBounceConfirmed ? 8.2f : RaisingSlimeUnits::JumpSpeedMps) * RaisingSlimeUnits::MetersToCm;
+			const float TakeoffMps = bBounce && bBounceConfirmed
+				? FMath::Max(JumpSpeedMps + 0.6f, 8.4f)
+				: JumpSpeedMps;
+			VerticalVelocity = TakeoffMps * RaisingSlimeUnits::MetersToCm;
 			bOutJumpConsumed = true;
 		}
 		else if (bBounce && bExtraJump)
 		{
 			bExtraJump = false;
-			VerticalVelocity = (bBounceConfirmed ? 7.6f : 6.6f) * RaisingSlimeUnits::MetersToCm;
+			const float AirJumpMps = bBounceConfirmed ? (JumpSpeedMps - 0.2f) : (JumpSpeedMps - 1.2f);
+			VerticalVelocity = FMath::Max(5.5f, AirJumpMps) * RaisingSlimeUnits::MetersToCm;
 			bOutJumpConsumed = true;
 		}
 		else
@@ -227,7 +231,18 @@ void USlimeMovementComponent::Integrate(float Dt, ASlimePawn* Pawn, float SpeedM
 
 	if (!bGrounded)
 	{
-		VerticalVelocity += RaisingSlimeUnits::SlimeGravityCm * Dt;
+		// Asymmetric gravity: punchy rise, short apex hang, heavier fall (viscous slam — not Mario float).
+		float GravityScale = 1.f;
+		if (VerticalVelocity < 0.f)
+		{
+			GravityScale = JumpFallGravityScale;
+		}
+		else if (JumpApexVelocityCm > 1.f && VerticalVelocity < JumpApexVelocityCm)
+		{
+			const float Apex01 = 1.f - (VerticalVelocity / JumpApexVelocityCm);
+			GravityScale = FMath::Lerp(1.f, JumpApexGravityScale, Apex01);
+		}
+		VerticalVelocity += RaisingSlimeUnits::SlimeGravityCm * GravityScale * Dt;
 	}
 	else if (VerticalVelocity < 0.f)
 	{

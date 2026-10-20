@@ -16,13 +16,15 @@ bool FRaisingSlimeS17Kinematics::RunTest(const FString& Parameters)
 	const float StopTime = MoveSpeedMaxMps / MoveDecelMps2;
 	TestTrue(TEXT("stop time ≈ 0.172s"), FMath::IsNearlyEqual(StopTime, 0.172222f, 0.001f));
 
+	// Base ballistic with constant g (movement also applies apex/fall gravity scales → snappier hang).
 	const float Apex = (JumpSpeedMps * JumpSpeedMps) / (2.f * GravityMps2);
-	TestTrue(TEXT("jump apex ≈ 1.296m"), FMath::IsNearlyEqual(Apex, 1.296f, 0.001f));
+	TestTrue(TEXT("jump apex ≈ 1.521m @ 7.8 m/s"), FMath::IsNearlyEqual(Apex, 1.521f, 0.002f));
 
 	const float Airtime = (2.f * JumpSpeedMps) / GravityMps2;
-	TestTrue(TEXT("airtime ≈ 0.72s"), FMath::IsNearlyEqual(Airtime, 0.72f, 0.001f));
+	TestTrue(TEXT("base airtime ≈ 0.78s (scaled hang shorter in movement)"), FMath::IsNearlyEqual(Airtime, 0.78f, 0.002f));
 
 	TestTrue(TEXT("gravity cm matches 20 m/s²"), FMath::IsNearlyEqual(FMath::Abs(SlimeGravityCm) / MetersToCm, GravityMps2, 0.01f));
+	TestTrue(TEXT("jump takeoff bumped vs old 7.2"), JumpSpeedMps > 7.2f);
 	TestEqual(TEXT("default pitch -22"), DefaultPitch, -22.f);
 	TestEqual(TEXT("vertical FOV 78"), VerticalFovDegrees, 78.f);
 	TestTrue(TEXT("horiz FOV equiv ~110.43"), FMath::IsNearlyEqual(HorizontalFov16x9Equiv, 110.43f, 0.01f));

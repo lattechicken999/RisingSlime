@@ -38,6 +38,9 @@ protected:
 	UFUNCTION()
 	void OnCloseClicked();
 
+	UFUNCTION()
+	void OnSpitClicked();
+
 	UPROPERTY()
 	TObjectPtr<UTextBlock> TitleText;
 	UPROPERTY()
@@ -46,6 +49,8 @@ protected:
 	TObjectPtr<UTextBlock> HintLine;
 	UPROPERTY()
 	TObjectPtr<UVerticalBox> ConfirmedBox;
+	UPROPERTY()
+	TObjectPtr<UButton> SpitButton;
 	UPROPERTY()
 	TObjectPtr<UButton> CloseButton;
 };
