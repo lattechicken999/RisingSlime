@@ -272,7 +272,12 @@ bool USlimeGutContentComponent::HasSpittableGutPrey() const
 }
 
 bool USlimeGutContentComponent::TrySpitUnabsorbedPrey(
-	float& OutMass, ETraitId& OutTrait, bool& bOutMassCommitted, FString& OutLabel)
+	const FVector& LaunchOrigin,
+	const FVector& LaunchVelocity,
+	float& OutMass,
+	ETraitId& OutTrait,
+	bool& bOutMassCommitted,
+	FString& OutLabel)
 {
 	OutMass = 0.f;
 	OutTrait = ETraitId::None;
@@ -305,26 +310,24 @@ bool USlimeGutContentComponent::TrySpitUnabsorbedPrey(
 		OutLabel = Prey->GetLabel();
 		const bool bWasHeld = (E.Phase == EGutPhase::Held);
 
-		const FVector Forward = Owner->GetActorForwardVector();
-		const FVector DropAt = Owner->GetActorLocation()
-			+ Forward * (GetBodyRadiusCm() + 70.f)
-			+ FVector(0.f, 0.f, 30.f);
-		Prey->ReleaseFromGutToWorld(DropAt);
+		Prey->ReleaseFromGutToWorld(LaunchOrigin, LaunchVelocity);
 
 		Entries.RemoveAt(I);
 
-		if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(Owner))
+		if (ASlimePawn* Slime = Cast<ASlimePawn>(Owner))
 		{
-			if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
+			if (USlimeSoftVolumeComponent* Soft = Slime->GetSoftVolume())
 			{
 				Soft->ClearEngulfClimbTarget();
 			}
 		}
 
-		UE_LOG(LogTemp, Display, TEXT("SlimeGut: spit out %s (phase was %s, massCommitted=%d)"),
+		UE_LOG(LogTemp, Display,
+			TEXT("SlimeGut: launched %s (phase=%s massCommitted=%d speed=%.0f)"),
 			*OutLabel,
 			bWasHeld ? TEXT("Held") : TEXT("Contained"),
-			bOutMassCommitted ? 1 : 0);
+			bOutMassCommitted ? 1 : 0,
+			LaunchVelocity.Size());
 		return true;
 	}
 	return false;

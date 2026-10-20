@@ -195,7 +195,9 @@ void ASlimePawn::BindEnhancedInput()
 	}
 	if (PC->GetSpitAction())
 	{
-		EIC->BindAction(PC->GetSpitAction(), ETriggerEvent::Started, this, &ASlimePawn::OnSpit);
+		EIC->BindAction(PC->GetSpitAction(), ETriggerEvent::Started, this, &ASlimePawn::OnSpitStarted);
+		EIC->BindAction(PC->GetSpitAction(), ETriggerEvent::Completed, this, &ASlimePawn::OnSpitCompleted);
+		EIC->BindAction(PC->GetSpitAction(), ETriggerEvent::Canceled, this, &ASlimePawn::OnSpitCompleted);
 	}
 	if (PC->GetTraitPanelAction())
 	{
@@ -262,9 +264,40 @@ void ASlimePawn::Tick(float DeltaSeconds)
 		{
 			bJumpQueued = true;
 		}
-		if (PC->WasInputKeyJustPressed(EKeys::Q))
+
+		// Q charge spit: press starts, release fires (cap at Director SpitChargeMaxSeconds).
+		const bool bQDown = PC->IsInputKeyDown(EKeys::Q);
+		if (bQDown && !bSpitKeyHeld)
 		{
-			TrySpitActive();
+			bSpitKeyHeld = true;
+			BeginSpitCharge();
+		}
+		else if (!bQDown && bSpitKeyHeld)
+		{
+			bSpitKeyHeld = false;
+			ReleaseSpitCharge();
+		}
+	}
+	else if (bSpitCharging || bSpitKeyHeld)
+	{
+		bSpitKeyHeld = false;
+		CancelSpitCharge();
+	}
+
+	if (bSpitCharging)
+	{
+		float MaxCharge = 1.2f;
+		if (AExpeditionDirector* Director = FindDirector())
+		{
+			MaxCharge = FMath::Max(0.2f, Director->SpitChargeMaxSeconds);
+		}
+		SpitChargeSeconds = FMath::Min(MaxCharge, SpitChargeSeconds + DeltaSeconds);
+		SpitChargeLogAccum += DeltaSeconds;
+		if (SpitChargeLogAccum >= 0.25f)
+		{
+			SpitChargeLogAccum = 0.f;
+			UE_LOG(LogTemp, Display, TEXT("Spit charge %.0f%% (%.2fs / %.2fs)"),
+				GetSpitCharge01() * 100.f, SpitChargeSeconds, MaxCharge);
 		}
 	}
 
@@ -413,22 +446,79 @@ void ASlimePawn::OnCycleTrait(const FInputActionValue& /*Value*/)
 	}
 }
 
-void ASlimePawn::OnSpit(const FInputActionValue& /*Value*/)
+void ASlimePawn::OnSpitStarted(const FInputActionValue& /*Value*/)
 {
-	TrySpitActive();
+	bSpitKeyHeld = true;
+	BeginSpitCharge();
 }
 
-void ASlimePawn::TrySpitActive()
+void ASlimePawn::OnSpitCompleted(const FInputActionValue& /*Value*/)
 {
-	// Field spit anywhere — TraitPanel may stay open (Q / panel button). Full menu only blocks.
+	bSpitKeyHeld = false;
+	ReleaseSpitCharge();
+}
+
+bool ASlimePawn::CanStartSpitCharge() const
+{
+	if (IsMenuBlocking())
+	{
+		return false;
+	}
+	if (const AExpeditionDirector* Director = FindDirector())
+	{
+		return Director->CanSpitAnything();
+	}
+	return false;
+}
+
+float ASlimePawn::GetSpitCharge01() const
+{
+	float MaxCharge = 1.2f;
+	if (const AExpeditionDirector* Director = FindDirector())
+	{
+		MaxCharge = FMath::Max(0.2f, Director->SpitChargeMaxSeconds);
+	}
+	return FMath::Clamp(SpitChargeSeconds / MaxCharge, 0.f, 1.f);
+}
+
+void ASlimePawn::BeginSpitCharge()
+{
+	if (bSpitCharging || !CanStartSpitCharge())
+	{
+		return;
+	}
+	bSpitCharging = true;
+	SpitChargeSeconds = 0.f;
+	SpitChargeLogAccum = 0.f;
+	UE_LOG(LogTemp, Display, TEXT("Spit charge begin"));
+}
+
+void ASlimePawn::ReleaseSpitCharge()
+{
+	if (!bSpitCharging)
+	{
+		return;
+	}
+	const float Charge01 = GetSpitCharge01();
+	bSpitCharging = false;
+	SpitChargeSeconds = 0.f;
+	SpitChargeLogAccum = 0.f;
+
 	if (IsMenuBlocking())
 	{
 		return;
 	}
 	if (AExpeditionDirector* Director = FindDirector())
 	{
-		Director->SpitActive();
+		Director->SpitActive(Charge01);
 	}
+}
+
+void ASlimePawn::CancelSpitCharge()
+{
+	bSpitCharging = false;
+	SpitChargeSeconds = 0.f;
+	SpitChargeLogAccum = 0.f;
 }
 
 void ASlimePawn::OnTraitPanel(const FInputActionValue& /*Value*/)
@@ -677,7 +767,26 @@ void ASlimePawn::HandleGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey
 
 void ASlimePawn::PlaySpitSplash()
 {
-	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Spit, GetActorLocation(), GetBodySize());
+	PlaySpitSplashForward(0.55f);
+}
+
+void ASlimePawn::PlaySpitSplashForward(float Charge01)
+{
+	Charge01 = FMath::Clamp(Charge01, 0.f, 1.f);
+	FVector HorizFwd = GetActorForwardVector();
+	HorizFwd.Z = 0.f;
+	if (!HorizFwd.Normalize())
+	{
+		HorizFwd = FVector::ForwardVector;
+	}
+
+	const float BodyR = GetBodySize() * 50.f;
+	const float FwdOffset = FMath::Lerp(40.f, 120.f, Charge01);
+	const FVector At = GetActorLocation()
+		+ HorizFwd * (BodyR + FwdOffset)
+		+ FVector(0.f, 0.f, 30.f);
+	const float ScaleBody = GetBodySize() * FMath::Lerp(0.85f, 1.25f, Charge01);
+	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Spit, At, ScaleBody);
 }
 
 void ASlimePawn::PlayDeathSplash()

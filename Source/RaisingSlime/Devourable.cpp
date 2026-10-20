@@ -74,6 +74,7 @@ void ADevourable::DisableCollisionKeepVisible()
 	SetActorHiddenInGame(false);
 	if (MeshComponent)
 	{
+		MeshComponent->SetSimulatePhysics(false);
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		MeshComponent->SetGenerateOverlapEvents(false);
 		MeshComponent->SetVisibility(true);
@@ -160,7 +161,7 @@ void ADevourable::FinishGutAndRespawn()
 	BeginRespawnCooldown();
 }
 
-void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation)
+void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation, const FVector& LaunchVelocity)
 {
 	if (UWorld* World = GetWorld())
 	{
@@ -188,6 +189,16 @@ void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation)
 		MeshComponent->SetRelativeScale3D(FVector::OneVector);
 		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		MeshComponent->SetGenerateOverlapEvents(true);
+		MeshComponent->SetSimulatePhysics(LaunchVelocity.SizeSquared() > 1.f);
+		MeshComponent->SetEnableGravity(true);
+		if (LaunchVelocity.SizeSquared() > 1.f)
+		{
+			MeshComponent->SetPhysicsLinearVelocity(LaunchVelocity);
+		}
+		else
+		{
+			MeshComponent->SetSimulatePhysics(false);
+		}
 	}
 }
 
@@ -241,6 +252,7 @@ void ADevourable::RestoreScenePlacement()
 
 	if (MeshComponent)
 	{
+		MeshComponent->SetSimulatePhysics(false);
 		MeshComponent->SetVisibility(true);
 		MeshComponent->SetHiddenInGame(false);
 		MeshComponent->SetRelativeScale3D(FVector::OneVector);

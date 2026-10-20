@@ -77,6 +77,8 @@ public:
 	void AddImpact(float Amount);
 	void PlayDevourSplash(const FVector& AtLocation);
 	void PlaySpitSplash();
+	/** Forward spit VFX; Charge01 scales distance/scale of the burst. */
+	void PlaySpitSplashForward(float Charge01);
 	void PlayDeathSplash();
 
 	/**
@@ -101,11 +103,16 @@ protected:
 	void OnAttack(const struct FInputActionValue& Value);
 	void OnTrait(const struct FInputActionValue& Value);
 	void OnCycleTrait(const struct FInputActionValue& Value);
-	void OnSpit(const struct FInputActionValue& Value);
+	void OnSpitStarted(const struct FInputActionValue& Value);
+	void OnSpitCompleted(const struct FInputActionValue& Value);
 	void OnTraitPanel(const struct FInputActionValue& Value);
 	void OnCursor(const struct FInputActionValue& Value);
 	void OnFocus(const struct FInputActionValue& Value);
-	void TrySpitActive();
+	void BeginSpitCharge();
+	void ReleaseSpitCharge();
+	void CancelSpitCharge();
+	float GetSpitCharge01() const;
+	bool CanStartSpitCharge() const;
 
 	void ApplyLookFromRawPixels(const FVector2D& PixelDelta);
 	void UpdateAim();
@@ -169,6 +176,10 @@ protected:
 	bool bJumpQueued = false;
 	bool bEnhancedInputBound = false;
 	bool bLoggedMoveInput = false;
+	bool bSpitCharging = false;
+	bool bSpitKeyHeld = false;
+	float SpitChargeSeconds = 0.f;
+	float SpitChargeLogAccum = 0.f;
 
 	FVector2D MoveInput = FVector2D::ZeroVector;
 

@@ -271,7 +271,8 @@ void UTraitPanelWidget::OnSpitClicked()
 {
 	if (AExpeditionDirector* Director = FindDirector())
 	{
-		Director->SpitActive();
+		// Panel spit ≈ mid charge (no hold gesture on button).
+		Director->SpitActive(0.55f);
 		Refresh();
 	}
 }

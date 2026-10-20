@@ -37,10 +37,16 @@ public:
 	void ClearImmediate();
 
 	/**
-	 * Spit one unabsorbed prey (Held or Contained, not Dissolving) back to the world.
-	 * LIFO. Returns false if none. OutMassCommitted = Contained mass was already in RunMass.
+	 * Spit one unabsorbed prey (Held or Contained, not Dissolving) forward into the world.
+	 * LIFO. LaunchVelocity applied after place. OutMassCommitted = Contained mass was in RunMass.
 	 */
-	bool TrySpitUnabsorbedPrey(float& OutMass, ETraitId& OutTrait, bool& bOutMassCommitted, FString& OutLabel);
+	bool TrySpitUnabsorbedPrey(
+		const FVector& LaunchOrigin,
+		const FVector& LaunchVelocity,
+		float& OutMass,
+		ETraitId& OutTrait,
+		bool& bOutMassCommitted,
+		FString& OutLabel);
 
 	bool HasSpittableGutPrey() const;
 

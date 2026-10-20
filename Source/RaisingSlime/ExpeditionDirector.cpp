@@ -17,7 +17,7 @@ AExpeditionDirector::AExpeditionDirector()
 void AExpeditionDirector::BeginPlay()
 {
 	Super::BeginPlay();
-	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab 형질 · Q 토해내기.");
+	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab traits · hold Q to charge spit.");
 
 	// Ensure Hunt pickups exist even if the umap predates them.
 	UWorld* World = GetWorld();
@@ -296,7 +296,7 @@ void AExpeditionDirector::Spit(ETraitId Trait)
 	Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *TraitText::Name(Trait));
 	if (Slime)
 	{
-		Slime->PlaySpitSplash();
+		Slime->PlaySpitSplashForward(0.55f);
 	}
 }
 
@@ -323,7 +323,16 @@ void AExpeditionDirector::RefundGutSpit(float Mass, ETraitId Trait, bool bMassCo
 	SyncActiveFromConfirmed();
 }
 
-bool AExpeditionDirector::SpitActiveTrait()
+bool AExpeditionDirector::CanSpitAnything() const
+{
+	if (Slime && Slime->GetGutContent() && Slime->GetGutContent()->HasSpittableGutPrey())
+	{
+		return true;
+	}
+	return Confirmed.Num() > 0;
+}
+
+bool AExpeditionDirector::SpitActiveTrait(float Charge01)
 {
 	SyncActiveFromConfirmed();
 	if (Confirmed.Num() == 0 || Active == ETraitId::None)
@@ -333,29 +342,67 @@ bool AExpeditionDirector::SpitActiveTrait()
 	}
 
 	const ETraitId Trait = Confirmed[0];
-	Spit(Trait);
+	if (Confirmed.Remove(Trait) <= 0)
+	{
+		return false;
+	}
+	SyncActiveFromConfirmed();
+	Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *TraitText::Name(Trait));
+	if (Slime)
+	{
+		Slime->PlaySpitSplashForward(Charge01);
+	}
 	return true;
 }
 
-bool AExpeditionDirector::SpitActive()
+bool AExpeditionDirector::SpitActive(float Charge01)
 {
-	// Rule: Q prioritizes unabsorbed gut prey, else Confirmed Active trait.
+	Charge01 = FMath::Clamp(Charge01, 0.f, 1.f);
+	const float Dist = FMath::Lerp(SpitDistMinCm, SpitDistMaxCm, Charge01);
+
+	// Rule: gut unabsorbed prey first → forward launch; else Confirmed Active trait.
 	if (Slime && Slime->GetGutContent())
 	{
+		FVector HorizFwd = Slime->GetActorForwardVector();
+		HorizFwd.Z = 0.f;
+		if (!HorizFwd.Normalize())
+		{
+			HorizFwd = FVector::ForwardVector;
+		}
+
+		const float PitchRad = FMath::DegreesToRadians(SpitLaunchPitchDegrees);
+		const FVector LaunchDir =
+			(HorizFwd * FMath::Cos(PitchRad) + FVector::UpVector * FMath::Sin(PitchRad)).GetSafeNormal();
+		const float BodyR = Slime->GetBodySize() * 50.f;
+		const FVector Origin = Slime->GetActorLocation()
+			+ HorizFwd * (BodyR + 55.f)
+			+ FVector(0.f, 0.f, 45.f);
+
+		constexpr float GravityCm = 980.f;
+		const float Sin2A = FMath::Sin(2.f * PitchRad);
+		float Speed = (Sin2A > 0.05f)
+			? FMath::Sqrt(FMath::Max(1.f, Dist) * GravityCm / Sin2A)
+			: (Dist / 0.55f);
+		Speed = FMath::Clamp(Speed, 180.f, 2800.f);
+		const FVector LaunchVel = LaunchDir * Speed;
+
 		float Mass = 0.f;
 		ETraitId Trait = ETraitId::None;
 		bool bMassCommitted = false;
 		FString Label;
-		if (Slime->GetGutContent()->TrySpitUnabsorbedPrey(Mass, Trait, bMassCommitted, Label))
+		if (Slime->GetGutContent()->TrySpitUnabsorbedPrey(
+				Origin, LaunchVel, Mass, Trait, bMassCommitted, Label))
 		{
 			RefundGutSpit(Mass, Trait, bMassCommitted);
-			Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *Label);
-			Slime->PlaySpitSplash();
+			Status = FString::Printf(TEXT("%s forward spit (%.0fcm, charge=%.0f%%)"),
+				*Label, Dist, Charge01 * 100.f);
+			Slime->PlaySpitSplashForward(Charge01);
 			return true;
 		}
 	}
-	return SpitActiveTrait();
+	return SpitActiveTrait(Charge01);
 }
+
 
 bool AExpeditionDirector::PurgeConfirmedTrait(ETraitId Trait)
 {
