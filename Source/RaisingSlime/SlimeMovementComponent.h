@@ -49,6 +49,27 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Movement|Step")
 	bool bEnableStepUp = false;
 
+	/**
+	 * Jump feel: snappy apex (less hang) while keeping viscous slime weight.
+	 * Stronger fall / apex pull preferred over a tiny hop.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Movement|Jump", meta = (ClampMin = "4", ClampMax = "12"))
+	float JumpSpeedMps = 7.8f;
+
+	/** Extra gravity scale while falling (Vz < 0). */
+	UPROPERTY(EditAnywhere, Category = "Movement|Jump", meta = (ClampMin = "1", ClampMax = "2.5"))
+	float JumpFallGravityScale = 1.55f;
+
+	/**
+	 * When rising and |Vz| is below this (cm/s), blend toward JumpApexGravityScale
+	 * so the top of the arc does not float.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Movement|Jump", meta = (ClampMin = "50", ClampMax = "800"))
+	float JumpApexVelocityCm = 280.f;
+
+	UPROPERTY(EditAnywhere, Category = "Movement|Jump", meta = (ClampMin = "1", ClampMax = "2.5"))
+	float JumpApexGravityScale = 1.7f;
+
 	void ResetMotion();
 	void SetPlanarVelocity(const FVector& V) { PlanarVelocity = V; }
 
