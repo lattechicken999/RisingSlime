@@ -293,30 +293,13 @@ void USlimeSoftVolumeComponent::RefreshClimbBoundsFromPrey()
 
 void USlimeSoftVolumeComponent::SetEngulfClimbTarget(AActor* Prey)
 {
-	if (!Prey)
-	{
-		ClearEngulfClimbTarget();
-		return;
-	}
-
-	const bool bSame = Climb.bActive && Climb.Prey.Get() == Prey;
-	Climb.Prey = Prey;
-	Climb.bActive = true;
-	RefreshClimbBoundsFromPrey();
-	if (!bSame)
-	{
-		Climb.ClimbFront01 = 0.f;
-		UE_LOG(LogTemp, Display, TEXT("SlimeSoftVol: engulf climb target set r=%.1f h=%.1f"),
-			Climb.RadiusXY, Climb.TopZ - Climb.BottomZ);
-	}
+	// Retired (B′): press-meter + venom ribbons own engulf — do not twist soft volume.
+	(void)Prey;
+	ClearEngulfClimbTarget();
 }
 
 void USlimeSoftVolumeComponent::ClearEngulfClimbTarget()
 {
-	if (Climb.bActive)
-	{
-		UE_LOG(LogTemp, Display, TEXT("SlimeSoftVol: engulf climb cleared (front=%.2f)"), Climb.ClimbFront01);
-	}
 	Climb = FEngulfClimb();
 	for (FParticle& P : Particles)
 	{
@@ -326,85 +309,13 @@ void USlimeSoftVolumeComponent::ClearEngulfClimbTarget()
 
 void USlimeSoftVolumeComponent::ApplyEngulfClimb(ASlimePawn* Pawn, float Dt, const FQuat& YawQ)
 {
+	// No-op — particle climb sleeve removed (laggy / unnatural). Keep flags clear.
+	(void)Pawn;
+	(void)Dt;
+	(void)YawQ;
 	for (FParticle& P : Particles)
 	{
 		P.bClimbWrapping = false;
-	}
-
-	if (!Climb.bActive || !Pawn || Dt <= KINDA_SMALL_NUMBER)
-	{
-		return;
-	}
-
-	RefreshClimbBoundsFromPrey();
-	if (!Climb.Prey.IsValid())
-	{
-		ClearEngulfClimbTarget();
-		return;
-	}
-
-	const FVector BodyCom = GetBodyCenterWorld();
-	const float PlanarDist = FVector::Dist2D(BodyCom, Climb.Center);
-	const float ContactRange = BodyRadiusCm + Climb.RadiusXY + 28.f;
-	const float Press = FMath::Clamp(1.f - (PlanarDist / FMath::Max(40.f, ContactRange)), 0.f, 1.f);
-
-	if (Press > 0.08f)
-	{
-		// Advance climb front only while player presses body into/around prey.
-		Climb.ClimbFront01 = FMath::Min(1.f, Climb.ClimbFront01 + Dt * EngulfClimbAdvanceRate * (0.35f + 0.65f * Press));
-	}
-	else
-	{
-		Climb.ClimbFront01 = FMath::Max(0.f, Climb.ClimbFront01 - Dt * EngulfClimbDecayRate);
-	}
-
-	const float FrontZ = FMath::Lerp(Climb.BottomZ, Climb.TopZ, Climb.ClimbFront01);
-	const float WrapRange = ContactRange + 20.f;
-	const float Creep = 1.f - FMath::Exp(-FMath::Max(0.5f, EngulfClimbCreepRate) * Dt);
-
-	for (FParticle& P : Particles)
-	{
-		const float PDist = FVector::Dist2D(P.WorldPos, Climb.Center);
-		if (PDist > WrapRange)
-		{
-			continue;
-		}
-
-		FVector Radial(P.WorldPos.X - Climb.Center.X, P.WorldPos.Y - Climb.Center.Y, 0.f);
-		if (Radial.SizeSquared() < 4.f)
-		{
-			const FVector RestXY = YawQ.RotateVector(FVector(P.RestLocal.X, P.RestLocal.Y, 0.f));
-			Radial = FVector(RestXY.X, RestXY.Y, 0.f);
-		}
-		Radial = Radial.GetSafeNormal();
-		if (Radial.IsNearlyZero())
-		{
-			Radial = FVector(1.f, 0.f, 0.f);
-		}
-
-		const float Inflate = Climb.RadiusXY + P.Radius * 0.45f;
-		FVector Target = Climb.Center + Radial * Inflate;
-		// Sleeve fills from bottom up to climb front — ferrofluid rising on a rod.
-		const float DesiredZ = FMath::Clamp(
-			FMath::Lerp(P.WorldPos.Z, FrontZ, 0.75f + 0.2f * Press),
-			Climb.BottomZ + P.Radius * 0.15f,
-			FrontZ);
-		Target.Z = DesiredZ;
-
-		P.WorldPos = FMath::Lerp(P.WorldPos, Target, Creep);
-		P.Velocity = FMath::Lerp(P.Velocity, (Target - P.WorldPos) / FMath::Max(Dt, 0.001f), Creep * 0.5f);
-		P.bClimbWrapping = true;
-		// Prefer sleeve height over floor support while wrapping.
-		P.SupportCenter = Target;
-		P.bHasSupport = true;
-	}
-
-	if (bDebugDraw || CVarSlimeSoftVolDebugDraw.GetValueOnGameThread() != 0)
-	{
-		DrawDebugCylinder(GetWorld(),
-			FVector(Climb.Center.X, Climb.Center.Y, Climb.BottomZ),
-			FVector(Climb.Center.X, Climb.Center.Y, FrontZ),
-			Climb.RadiusXY, 12, FColor(40, 220, 180), false, -1.f, 0, 1.5f);
 	}
 }
 
@@ -602,11 +513,7 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	// Sigma kept moderate so half-up / half-down contrast survives; SkinMacroBoost restores read.
 	const float PlanarBias = FMath::Clamp(SkinPlanarBias, 0.f, 1.f);
 	const float MacroBoost = FMath::Clamp(SkinMacroBoost, 0.8f, 2.5f);
-	float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
-	if (Climb.bActive && Climb.ClimbFront01 > 0.02f)
-	{
-		LatScale = FMath::Clamp(FMath::Max(LatScale, EngulfSkinLateralBoost), 0.f, 1.f);
-	}
+	const float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
 	const float Sigma = FMath::Max(16.f, BodyRadiusCm * FMath::Clamp(SkinSigmaScale, 0.25f, 1.f));
 	const float InvTwoSig2 = 1.f / (2.f * Sigma * Sigma);
 

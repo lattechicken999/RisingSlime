@@ -9,7 +9,7 @@ class AActor;
 
 /**
  * Soft-volume collision: overlapping spheres that resolve WorldStatic individually.
- * During Held devour, particles climb-wrap prey (ferrofluid) bottom→top with viscous lag.
+ * Engulf climb sleeve is retired (alt B′: press-meter + venom ribbons on gut).
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeSoftVolumeComponent : public UActorComponent
@@ -39,12 +39,11 @@ public:
 	bool ContainsWorldPoint(const FVector& WorldPos) const;
 	float SampleCoverage(const TArray<FVector>& SamplePoints) const;
 
-	/** Register Held prey for ferrofluid climb-wrap (bounds from actor). */
+	/** Retired — no-op (Contained uses gut Engulf01 + venom ribbons). */
 	void SetEngulfClimbTarget(AActor* Prey);
 	void ClearEngulfClimbTarget();
-	bool HasEngulfClimbTarget() const { return Climb.bActive; }
-	/** 0 = base contact only, 1 = wrapped to prey top. */
-	float GetEngulfClimbProgress01() const { return Climb.bActive ? Climb.ClimbFront01 : 0.f; }
+	bool HasEngulfClimbTarget() const { return false; }
+	float GetEngulfClimbProgress01() const { return 0.f; }
 
 	FVector SampleDisplacementLocal(const FVector& MeshLocalPoint) const;
 

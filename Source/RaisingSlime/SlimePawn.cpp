@@ -5,6 +5,7 @@
 #include "SlimeShot.h"
 #include "SlimeMovementComponent.h"
 #include "JellyDeformerComponent.h"
+#include "SlimeEngulfVenomComponent.h"
 #include "SlimeSoftVolumeComponent.h"
 #include "SlimeGutContentComponent.h"
 #include "SlimeFleshExperimentComponent.h"
@@ -73,6 +74,7 @@ ASlimePawn::ASlimePawn()
 	Jelly = CreateDefaultSubobject<UJellyDeformerComponent>(TEXT("Jelly"));
 	SoftVolume = CreateDefaultSubobject<USlimeSoftVolumeComponent>(TEXT("SoftVolume"));
 	GutContent = CreateDefaultSubobject<USlimeGutContentComponent>(TEXT("GutContent"));
+	EngulfVenom = CreateDefaultSubobject<USlimeEngulfVenomComponent>(TEXT("EngulfVenom"));
 	FleshExperiment = CreateDefaultSubobject<USlimeFleshExperimentComponent>(TEXT("FleshExperiment"));
 }
 

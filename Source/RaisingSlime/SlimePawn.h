@@ -12,6 +12,7 @@ class USlimeMovementComponent;
 class UJellyDeformerComponent;
 class USlimeSoftVolumeComponent;
 class USlimeGutContentComponent;
+class USlimeEngulfVenomComponent;
 class USlimeFleshExperimentComponent;
 class UMaterialInterface;
 class AExpeditionDirector;
@@ -40,6 +41,8 @@ public:
 	USlimeMovementComponent* GetSlimeMovement() const { return Movement; }
 	USlimeSoftVolumeComponent* GetSoftVolume() const { return SoftVolume; }
 	USlimeGutContentComponent* GetGutContent() const { return GutContent; }
+	USlimeEngulfVenomComponent* GetEngulfVenom() const { return EngulfVenom; }
+	UMaterialInterface* GetCachedSlimeMaterial() const { return CachedSlimeMaterial; }
 
 	/** Begin melting swallowed proxies (death / legacy settle). */
 	void BeginGutDissolve();
@@ -124,6 +127,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<USlimeGutContentComponent> GutContent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
+	TObjectPtr<USlimeEngulfVenomComponent> EngulfVenom;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")
 	TObjectPtr<USlimeFleshExperimentComponent> FleshExperiment;
