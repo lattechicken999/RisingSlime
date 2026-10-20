@@ -58,9 +58,17 @@ public:
 	bool TryConfirm(ETraitId Trait);
 	void Spit(ETraitId Trait);
 
-	/** Field spit: remove Active Confirmed[0] only. No world item spawn. Nest not required. */
+	/**
+	 * Field spit (Q): gut prey first (Held/Contained → world), else Active Confirmed[0] trait.
+	 * Nest not required. Trait spit does not spawn a world item.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	bool SpitActive();
+
+	/** Remove Active Confirmed[0] only (no gut). */
+	bool SpitActiveTrait();
+
+	void RefundGutSpit(float Mass, ETraitId Trait, bool bMassCommitted);
 
 	bool PurgeConfirmedTrait(ETraitId Trait);
 	bool ReorderConfirmed(ETraitId Dragged, ETraitId DropTarget);

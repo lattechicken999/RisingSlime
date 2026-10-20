@@ -259,6 +259,77 @@ void USlimeGutContentComponent::TickHeldDrift(FGutEntry& Entry, float Dt)
 	}
 }
 
+bool USlimeGutContentComponent::HasSpittableGutPrey() const
+{
+	for (const FGutEntry& E : Entries)
+	{
+		if ((E.Phase == EGutPhase::Held || E.Phase == EGutPhase::Contained) && E.Prey.IsValid())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool USlimeGutContentComponent::TrySpitUnabsorbedPrey(
+	float& OutMass, ETraitId& OutTrait, bool& bOutMassCommitted, FString& OutLabel)
+{
+	OutMass = 0.f;
+	OutTrait = ETraitId::None;
+	bOutMassCommitted = false;
+	OutLabel.Reset();
+
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return false;
+	}
+
+	for (int32 I = Entries.Num() - 1; I >= 0; --I)
+	{
+		FGutEntry& E = Entries[I];
+		if (E.Phase != EGutPhase::Held && E.Phase != EGutPhase::Contained)
+		{
+			continue;
+		}
+		ADevourable* Prey = E.Prey.Get();
+		if (!Prey)
+		{
+			Entries.RemoveAt(I);
+			continue;
+		}
+
+		OutMass = E.Mass;
+		OutTrait = E.Trait;
+		bOutMassCommitted = E.bMassCommitted;
+		OutLabel = Prey->GetLabel();
+		const bool bWasHeld = (E.Phase == EGutPhase::Held);
+
+		const FVector Forward = Owner->GetActorForwardVector();
+		const FVector DropAt = Owner->GetActorLocation()
+			+ Forward * (GetBodyRadiusCm() + 70.f)
+			+ FVector(0.f, 0.f, 30.f);
+		Prey->ReleaseFromGutToWorld(DropAt);
+
+		Entries.RemoveAt(I);
+
+		if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(Owner))
+		{
+			if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
+			{
+				Soft->ClearEngulfClimbTarget();
+			}
+		}
+
+		UE_LOG(LogTemp, Display, TEXT("SlimeGut: spit out %s (phase was %s, massCommitted=%d)"),
+			*OutLabel,
+			bWasHeld ? TEXT("Held") : TEXT("Contained"),
+			bOutMassCommitted ? 1 : 0);
+		return true;
+	}
+	return false;
+}
+
 void USlimeGutContentComponent::BeginDissolveAll()
 {
 	for (FGutEntry& E : Entries)

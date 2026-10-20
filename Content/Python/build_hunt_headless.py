@@ -181,6 +181,7 @@ def build():
     spawn_actor("/Script/RaisingSlime.CreatureAgent", "Prey_Bee", (13.5, 1.0, 12.5), 1.0)
 
     spawn_actor("/Script/RaisingSlime.TraitPurgePickup", "Pickup_TraitPurge", (2.5, 0.35, -1.8), 1.0)
+    spawn_actor("/Script/RaisingSlime.FootOozePickup", "Pickup_FootOoze", (-2.2, 0.35, 2.0), 1.0)
 
     for i, (pos, sc) in enumerate([
         ((9.5, 0.45, -1.5), 0.85),

@@ -40,6 +40,9 @@ public:
 	/** Hide + detach after absorb dissolve or death; then start respawn timer. */
 	void FinishGutAndRespawn();
 
+	/** Spit from gut: drop back into the world (no respawn timer). Re-devourable. */
+	void ReleaseFromGutToWorld(const FVector& WorldLocation);
+
 	void BeginRespawnCooldown();
 	virtual void RestoreScenePlacement();
 

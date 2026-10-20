@@ -36,6 +36,14 @@ public:
 	void BeginDissolveAll();
 	void ClearImmediate();
 
+	/**
+	 * Spit one unabsorbed prey (Held or Contained, not Dissolving) back to the world.
+	 * LIFO. Returns false if none. OutMassCommitted = Contained mass was already in RunMass.
+	 */
+	bool TrySpitUnabsorbedPrey(float& OutMass, ETraitId& OutTrait, bool& bOutMassCommitted, FString& OutLabel);
+
+	bool HasSpittableGutPrey() const;
+
 	int32 GetGutCount() const { return Entries.Num(); }
 	float GetSwallowSwellBonus() const;
 	float GetContainedMass() const;

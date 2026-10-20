@@ -116,8 +116,9 @@ def build():
     if bee:
         bee.set_editor_property("display_name", "벌")
 
-    # Trait purge world pickup (Tab delete unlock); Director also spawns at runtime if missing.
+    # World pickups (Director also spawns at runtime if missing).
     spawn_actor("/Script/RaisingSlime.TraitPurgePickup", "Pickup_TraitPurge", (2.5, 0.35, -1.8), 1.0)
+    spawn_actor("/Script/RaisingSlime.FootOozePickup", "Pickup_FootOoze", (-2.2, 0.35, 2.0), 1.0)
 
     # Decor stones (collision on)
     for i, (pos, sc) in enumerate([

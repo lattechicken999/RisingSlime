@@ -45,6 +45,10 @@ public:
 	UFUNCTION(Exec)
 	void GiveTraitPurgeItem();
 
+	/** Dev cheat: enable item foot ooze on possessed slime. */
+	UFUNCTION(Exec)
+	void GiveFootOozeItem();
+
 protected:
 	void BuildRuntimeInput();
 	bool TryLoadAssetInput();

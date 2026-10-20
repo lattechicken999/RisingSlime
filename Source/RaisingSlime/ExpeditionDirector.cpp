@@ -3,6 +3,7 @@
 #include "SlimePawn.h"
 #include "SlimeGutContentComponent.h"
 #include "TraitPurgePickup.h"
+#include "FootOozePickup.h"
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
@@ -18,19 +19,33 @@ void AExpeditionDirector::BeginPlay()
 	Super::BeginPlay();
 	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab 형질 · Q 토해내기.");
 
-	// Ensure Hunt has a trait-purge pickup even if the umap was built before this actor existed.
+	// Ensure Hunt pickups exist even if the umap predates them.
 	UWorld* World = GetWorld();
-	if (World && !UGameplayStatics::GetActorOfClass(World, ATraitPurgePickup::StaticClass()))
+	if (World)
 	{
-		const FVector Loc(250.f, -180.f, 40.f); // ~near nest, clear of pad
 		FActorSpawnParameters Params;
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		if (ATraitPurgePickup* Pickup = World->SpawnActor<ATraitPurgePickup>(Loc, FRotator::ZeroRotator, Params))
+		if (!UGameplayStatics::GetActorOfClass(World, ATraitPurgePickup::StaticClass()))
 		{
+			const FVector Loc(250.f, -180.f, 40.f);
+			if (ATraitPurgePickup* Pickup = World->SpawnActor<ATraitPurgePickup>(Loc, FRotator::ZeroRotator, Params))
+			{
 #if WITH_EDITOR
-			Pickup->SetActorLabel(TEXT("Pickup_TraitPurge"));
+				Pickup->SetActorLabel(TEXT("Pickup_TraitPurge"));
 #endif
-			UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_TraitPurge at runtime"));
+				UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_TraitPurge at runtime"));
+			}
+		}
+		if (!UGameplayStatics::GetActorOfClass(World, AFootOozePickup::StaticClass()))
+		{
+			const FVector Loc(-220.f, 200.f, 40.f);
+			if (AFootOozePickup* Pickup = World->SpawnActor<AFootOozePickup>(Loc, FRotator::ZeroRotator, Params))
+			{
+#if WITH_EDITOR
+				Pickup->SetActorLabel(TEXT("Pickup_FootOoze"));
+#endif
+				UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_FootOoze at runtime"));
+			}
 		}
 	}
 }
@@ -285,7 +300,30 @@ void AExpeditionDirector::Spit(ETraitId Trait)
 	}
 }
 
-bool AExpeditionDirector::SpitActive()
+void AExpeditionDirector::RefundGutSpit(float Mass, ETraitId Trait, bool bMassCommitted)
+{
+	if (bMassCommitted)
+	{
+		RunMass = FMath::Max(0.f, RunMass - Mass);
+		if (Slime)
+		{
+			Slime->RefreshBody();
+		}
+	}
+
+	// Trait was granted Unstable at swallow — reclaim one if not already Confirmed.
+	if (Trait != ETraitId::None && !Confirmed.Contains(Trait))
+	{
+		const int32 Idx = Unstable.IndexOfByKey(Trait);
+		if (Idx != INDEX_NONE)
+		{
+			Unstable.RemoveAt(Idx);
+		}
+	}
+	SyncActiveFromConfirmed();
+}
+
+bool AExpeditionDirector::SpitActiveTrait()
 {
 	SyncActiveFromConfirmed();
 	if (Confirmed.Num() == 0 || Active == ETraitId::None)
@@ -297,6 +335,26 @@ bool AExpeditionDirector::SpitActive()
 	const ETraitId Trait = Confirmed[0];
 	Spit(Trait);
 	return true;
+}
+
+bool AExpeditionDirector::SpitActive()
+{
+	// Rule: Q prioritizes unabsorbed gut prey, else Confirmed Active trait.
+	if (Slime && Slime->GetGutContent())
+	{
+		float Mass = 0.f;
+		ETraitId Trait = ETraitId::None;
+		bool bMassCommitted = false;
+		FString Label;
+		if (Slime->GetGutContent()->TrySpitUnabsorbedPrey(Mass, Trait, bMassCommitted, Label))
+		{
+			RefundGutSpit(Mass, Trait, bMassCommitted);
+			Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *Label);
+			Slime->PlaySpitSplash();
+			return true;
+		}
+	}
+	return SpitActiveTrait();
 }
 
 bool AExpeditionDirector::PurgeConfirmedTrait(ETraitId Trait)

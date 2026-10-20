@@ -1,6 +1,8 @@
 #include "TraitPanelWidget.h"
 #include "TraitPanelRowWidget.h"
 #include "ExpeditionDirector.h"
+#include "SlimePawn.h"
+#include "SlimeGutContentComponent.h"
 #include "RaisingSlimeHud.h"
 #include "Blueprint/WidgetTree.h"
 #include "Blueprint/DragDropOperation.h"
@@ -102,7 +104,7 @@ void UTraitPanelWidget::RebuildLayout()
 	SpitButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("SpitButton"));
 	{
 		UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SpitLabel"));
-		Label->SetText(FText::FromString(TEXT("토해내기 (Q) — 활성 1개")));
+		Label->SetText(FText::FromString(TEXT("토해내기 (Q) — gut 우선 / 없으면 활성")));
 		Label->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 		SpitButton->AddChild(Label);
 		SpitButton->OnClicked.AddDynamic(this, &UTraitPanelWidget::OnSpitClicked);
@@ -159,12 +161,20 @@ void UTraitPanelWidget::Refresh()
 	if (HintLine)
 	{
 		HintLine->SetText(FText::FromString(Director->HasTraitPurgeItem()
-			? TEXT("위=활성. Q/버튼 토해내기. 드래그 순서. 삭제=아이템.")
-			: TEXT("위=활성. Q/버튼 토해내기. 드래그 순서. (삭제 아이템 없음)")));
+			? TEXT("Q: gut 먹이 우선→없으면 Active. 드래그 순서. 삭제=아이템.")
+			: TEXT("Q: gut 먹이 우선→없으면 Active. 드래그 순서. (삭제 아이템 없음)")));
 	}
 	if (SpitButton)
 	{
-		SpitButton->SetIsEnabled(Director->GetConfirmedTraits().Num() > 0);
+		bool bGut = false;
+		if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(UGameplayStatics::GetPlayerPawn(GetWorld(), 0)))
+		{
+			if (USlimeGutContentComponent* Gut = SoftSlime->GetGutContent())
+			{
+				bGut = Gut->HasSpittableGutPrey();
+			}
+		}
+		SpitButton->SetIsEnabled(bGut || Director->GetConfirmedTraits().Num() > 0);
 	}
 
 	ClearChildren(ConfirmedBox);

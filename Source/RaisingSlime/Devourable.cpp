@@ -160,6 +160,37 @@ void ADevourable::FinishGutAndRespawn()
 	BeginRespawnCooldown();
 }
 
+void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RespawnTimer);
+	}
+
+	bInsideGut = false;
+	bConsumed = false;
+
+	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
+
+	SetActorLocation(WorldLocation);
+	SetActorScale3D(HomeScale3D);
+	SetActorHiddenInGame(false);
+	SetActorEnableCollision(true);
+	SetActorTickEnabled(true);
+
+	if (MeshComponent)
+	{
+		MeshComponent->SetVisibility(true);
+		MeshComponent->SetHiddenInGame(false);
+		MeshComponent->SetRelativeScale3D(FVector::OneVector);
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		MeshComponent->SetGenerateOverlapEvents(true);
+	}
+}
+
 void ADevourable::BeginRespawnCooldown()
 {
 	if (!bConsumed && !bInsideGut)

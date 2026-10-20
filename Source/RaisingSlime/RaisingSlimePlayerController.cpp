@@ -131,6 +131,15 @@ void ARaisingSlimePlayerController::GiveTraitPurgeItem()
 	}
 }
 
+void ARaisingSlimePlayerController::GiveFootOozeItem()
+{
+	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetPawn()))
+	{
+		SoftSlime->SetFootOozeFromItem(true);
+		UE_LOG(LogTemp, Display, TEXT("GiveFootOozeItem: tiny contact ooze enabled"));
+	}
+}
+
 bool ARaisingSlimePlayerController::TryLoadAssetInput()
 {
 	if (MappingContext && MoveAction)

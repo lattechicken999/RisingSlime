@@ -172,8 +172,8 @@ void SlimeVfx::TickContactOoze(
 	const float Speed01 = FMath::Clamp((PlanarSpeedCm - MinSpeedCm) / 420.f, 0.f, 1.f);
 	InOutCooldown = FMath::Lerp(0.38f, 0.22f, Speed01);
 
-	// Tiny contact footprint only (slightly > slime contact) — not water sheets / splash.
-	const float Scale = FMath::Clamp(0.12f + BodySize * 0.08f + Speed01 * 0.06f, 0.10f, 0.28f);
+	// Item-only: slightly larger than contact footprint — never water sheets / splash.
+	const float Scale = FMath::Clamp(0.08f + BodySize * 0.05f + Speed01 * 0.04f, 0.08f, 0.20f);
 	const FVector SpawnAt = FeetLocation + FVector(0.f, 0.f, 2.f);
 
 	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
