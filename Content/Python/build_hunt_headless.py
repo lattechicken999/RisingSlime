@@ -159,7 +159,7 @@ def build():
     rock = spawn_actor("/Script/RaisingSlime.Devourable", "Prey_Rock", (6.2, 0.42, 5.4), (0.70, 0.55, 0.70))
     if rock:
         set_prop(rock, "display_name", "돌")
-        set_prop(rock, "kind", unreal.PreyKind.OBJECT)
+        set_prop(rock, "kind", unreal.PreyKind.ROCK)
         set_prop(rock, "trait", unreal.TraitId.HARDEN)
         set_prop(rock, "mass", 2.0)
         set_prop(rock, "base_chance", 0.62)
@@ -170,7 +170,7 @@ def build():
     rubber = spawn_actor("/Script/RaisingSlime.Devourable", "Prey_Rubber", (-4.2, 0.34, 6.6), 0.62)
     if rubber:
         set_prop(rubber, "display_name", "고무")
-        set_prop(rubber, "kind", unreal.PreyKind.OBJECT)
+        set_prop(rubber, "kind", unreal.PreyKind.RUBBER)
         set_prop(rubber, "trait", unreal.TraitId.BOUNCE)
         set_prop(rubber, "mass", 2.0)
         set_prop(rubber, "base_chance", 0.58)
@@ -190,12 +190,28 @@ def build():
     ], start=1):
         spawn_mesh("Stone_{:02d}".format(i), "/Engine/BasicShapes/Sphere", pos, sc, True)
 
+    # C0 basic ammo — devourable grass (Director also runtime-spawns if missing).
     grass_positions = [
         (2.4, 0.28, 2.2), (3.6, 0.34, 3.1), (5.1, 0.24, 7.2), (8.4, 0.30, 3.4),
         (11.2, 0.36, 8.1), (-2.2, 0.26, 4.4), (-5.5, 0.32, 8.8), (14.8, 0.30, 15.2),
     ]
     for i, pos in enumerate(grass_positions, start=1):
-        spawn_mesh("Grass_{:02d}".format(i), "/Engine/BasicShapes/Cylinder", pos, (0.12, 0.50, 0.12), False)
+        grass = spawn_actor(
+            "/Script/RaisingSlime.Devourable",
+            "Prey_Grass_{:02d}".format(i),
+            pos,
+            (0.12, 0.50, 0.12),
+        )
+        if grass:
+            set_prop(grass, "display_name", "잔디")
+            set_prop(grass, "kind", unreal.PreyKind.GRASS)
+            set_prop(grass, "trait", unreal.TraitId.NONE)
+            set_prop(grass, "mass", 0.4)
+            set_prop(grass, "base_chance", 0.0)
+            set_prop(grass, "respawn_cooldown", 8.0)
+            mesh = load_mesh("/Engine/BasicShapes/Cylinder")
+            if hasattr(grass, "mesh_component") and grass.mesh_component:
+                grass.mesh_component.set_static_mesh(mesh)
 
     spawn_mesh("Bloom_01", "/Engine/BasicShapes/Sphere", (1.8, 0.16, 3.5), 0.28, False)
     spawn_mesh("Bloom_02", "/Engine/BasicShapes/Sphere", (7.4, 0.16, 6.8), 0.28, False)

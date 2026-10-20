@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CombatTarget.h"
 #include "Devourable.h"
 #include "CreatureAgent.generated.h"
 
@@ -8,7 +9,7 @@ class ASlimePawn;
 class UCapsuleComponent;
 
 UCLASS()
-class RAISINGSLIME_API ACreatureAgent : public ADevourable
+class RAISINGSLIME_API ACreatureAgent : public ADevourable, public ICombatTarget
 {
 	GENERATED_BODY()
 
@@ -19,12 +20,21 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void RestoreScenePlacement() override;
 
+	// ICombatTarget
+	virtual float GetCombatHp() const override { return Hp; }
+	virtual float GetCombatMaxHp() const override { return MaxHp; }
+	virtual bool IsCombatDowned() const override { return bDowned; }
+	virtual bool CanBeDevoured() const override;
+	virtual void ApplyDamage(float Amount, AActor* Instigator, FName DamageTag) override;
+	virtual void EnterDowned() override;
+
 	UFUNCTION(BlueprintCallable, Category = "Creature")
 	bool IsDowned() const { return bDowned; }
 
 	UFUNCTION(BlueprintCallable, Category = "Creature")
 	float GetHp() const { return Hp; }
 
+	/** Legacy hit path (poison DoT — C1 uses ApplyDamage + separate DoT). */
 	void TakeHit(float Damage, bool bApplyPoison, float Dps, float Duration);
 	void Revive();
 
@@ -51,7 +61,6 @@ public:
 
 protected:
 	void TickPoison(float DeltaSeconds);
-	void KnockDown();
 	void MoveTowards(const FVector& Destination, float DeltaSeconds);
 	void ApplyTint(FLinearColor Color);
 	void ClearTint();

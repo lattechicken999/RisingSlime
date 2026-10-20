@@ -102,6 +102,8 @@ public:
 
 protected:
 	bool Owns(ETraitId Trait) const;
+	/** Hunt C0: ensure devourable grass ammo exists near nest (umap may only have decor). */
+	void EnsureHuntGrassAmmo();
 
 	UPROPERTY()
 	TObjectPtr<ASlimePawn> Slime;

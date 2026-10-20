@@ -84,6 +84,7 @@ bool ASlimeShot::TryHit(float StepCm)
 	{
 		if (!Agent->IsDowned())
 		{
+			// Legacy orb path kept for tooling; play combat uses gut spit (C0).
 			Agent->TakeHit(Damage, bPoison, PoisonDps, PoisonDuration);
 		}
 	}

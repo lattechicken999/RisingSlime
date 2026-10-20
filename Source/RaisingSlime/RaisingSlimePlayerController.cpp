@@ -192,7 +192,7 @@ bool ARaisingSlimePlayerController::TryLoadAssetInput()
 	}
 	MappingContext->MapKey(TraitPanelAction, EKeys::Tab);
 
-	// Spit on Q; move CycleTrait off Q → R so they don't fight (legacy IMC had Cycle on Q).
+	// C0: spit = left-click hold/release. Q unused for spit. CycleTrait stays on R.
 	if (LoadedSpit)
 	{
 		SpitAction = LoadedSpit;
@@ -204,10 +204,13 @@ bool ARaisingSlimePlayerController::TryLoadAssetInput()
 	}
 	MappingContext->UnmapKey(CycleTraitAction, EKeys::Q);
 	MappingContext->MapKey(CycleTraitAction, EKeys::R);
-	MappingContext->MapKey(SpitAction, EKeys::Q);
+	MappingContext->UnmapKey(AttackAction, EKeys::LeftMouseButton);
+	MappingContext->UnmapKey(SpitAction, EKeys::Q);
+	MappingContext->UnmapKey(SpitAction, EKeys::LeftMouseButton);
+	MappingContext->MapKey(SpitAction, EKeys::LeftMouseButton);
 	StripShiftSprintMappings();
 
-	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded IMC_Slime (TraitPanel=Tab Spit=Q Cycle=R; Shift unbound)"));
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded IMC_Slime (TraitPanel=Tab Spit=LMB Cycle=R; Q unused; Shift unbound)"));
 	return true;
 }
 
@@ -296,14 +299,14 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 
 	MappingContext->MapKey(LookAction, EKeys::Mouse2D);
 	MappingContext->MapKey(JumpAction, EKeys::SpaceBar);
-	MappingContext->MapKey(AttackAction, EKeys::LeftMouseButton);
+	// AttackAction deliberately unmapped — no slime-orb primary (C0).
 	MappingContext->MapKey(TraitAction, EKeys::RightMouseButton);
 	MappingContext->MapKey(CycleTraitAction, EKeys::R);
-	MappingContext->MapKey(SpitAction, EKeys::Q);
+	MappingContext->MapKey(SpitAction, EKeys::LeftMouseButton);
 	MappingContext->MapKey(TraitPanelAction, EKeys::Tab);
 	MappingContext->MapKey(CursorAction, EKeys::Escape);
 	MappingContext->MapKey(FocusAction, EKeys::LeftMouseButton);
 	StripShiftSprintMappings();
 
-	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: runtime IMC/actions built (Spit=Q Cycle=R; Shift unbound)"));
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: runtime IMC/actions built (Spit=LMB Cycle=R; Q unused; Shift unbound)"));
 }
