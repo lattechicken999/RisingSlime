@@ -10,8 +10,8 @@ class ADevourable;
 UENUM()
 enum class EGutPhase : uint8
 {
-	Held,       // World pose frozen; player covers with body
-	Contained,  // Sealed at LocalOffset; float/bob + absorb timer
+	Held,
+	Contained,
 	Dissolving
 };
 
@@ -19,7 +19,7 @@ DECLARE_DELEGATE_ThreeParams(FOnGutAbsorbed, float /*Mass*/, ETraitId /*Trait*/,
 DECLARE_DELEGATE_ThreeParams(FOnGutContained, float /*Mass*/, ETraitId /*Trait*/, ADevourable* /*Prey*/);
 
 /**
- * Natural devour: Held (no pull) → player Engulf coverage → Contained float at seal offset → dissolve.
+ * Natural devour: Held + ferrofluid climb-wrap → Contained float at seal → dissolve.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeGutContentComponent : public UActorComponent
@@ -31,17 +31,12 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	/** Channel complete → Held at world pose (no attach, no center pull). */
 	void Swallow(ADevourable* Prey);
-
 	void BeginDissolveAll();
 	void ClearImmediate();
 
 	int32 GetGutCount() const { return Entries.Num(); }
-
-	/** Body swell from Contained+ mass after grow ease (no early punch). */
 	float GetSwallowSwellBonus() const;
-
 	float GetContainedMass() const;
 	float GetPendingHeldMass() const;
 
@@ -51,11 +46,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Gut|Absorb")
 	float AbsorbDuration = 8.f;
 
+	/** Contained when soft-volume climb front reaches this (bottom→top). */
 	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0.5", ClampMax = "1.0"))
-	float EngulfCoverageThreshold = 0.9f;
+	float EngulfClimbCompleteThreshold = 0.92f;
 
 	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0.05", ClampMax = "0.5"))
-	float EngulfHoldSeconds = 0.12f;
+	float EngulfHoldSeconds = 0.15f;
 
 	UPROPERTY(EditAnywhere, Category = "Gut|Float")
 	float FloatBobAmplitude = 6.f;
@@ -99,7 +95,8 @@ protected:
 	void TickHeldEngulf(FGutEntry& Entry, float Dt);
 	void EnterContained(FGutEntry& Entry);
 	void FinishEntry(FGutEntry& Entry);
-	float ComputeCoverage(ADevourable* Prey) const;
+	void SyncClimbTarget();
+	ADevourable* FindPrimaryHeldPrey() const;
 
 	TArray<FGutEntry> Entries;
 };

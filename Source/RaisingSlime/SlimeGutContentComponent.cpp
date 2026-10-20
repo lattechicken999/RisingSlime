@@ -47,40 +47,38 @@ float USlimeGutContentComponent::GetSwallowSwellBonus() const
 	return GetContainedMass() * ContainedMassToSize;
 }
 
-float USlimeGutContentComponent::ComputeCoverage(ADevourable* Prey) const
+ADevourable* USlimeGutContentComponent::FindPrimaryHeldPrey() const
 {
-	if (!Prey)
+	for (const FGutEntry& E : Entries)
 	{
-		return 0.f;
-	}
-
-	TArray<FVector> Samples;
-	Prey->CollectEngulfSamplePoints(Samples);
-
-	const ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner());
-	if (SoftSlime && SoftSlime->GetSoftVolume() && SoftSlime->GetSoftVolume()->bEnabled)
-	{
-		return SoftSlime->GetSoftVolume()->SampleCoverage(Samples);
-	}
-
-	// Fallback: body sphere at soft/mesh center.
-	FVector Center = GetOwner() ? GetOwner()->GetActorLocation() + FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm) : FVector::ZeroVector;
-	float Radius = SoftSlime ? SoftSlime->GetBodySize() * 50.f : 50.f;
-	if (SoftSlime && SoftSlime->GetSoftVolume())
-	{
-		Center = SoftSlime->GetSoftVolume()->GetBodyCenterWorld();
-		Radius = SoftSlime->GetSoftVolume()->GetBodyRadiusCm();
-	}
-
-	int32 Inside = 0;
-	for (const FVector& Pt : Samples)
-	{
-		if (FVector::DistSquared(Pt, Center) <= FMath::Square(Radius))
+		if (E.Phase == EGutPhase::Held)
 		{
-			++Inside;
+			if (ADevourable* Prey = E.Prey.Get())
+			{
+				return Prey;
+			}
 		}
 	}
-	return Samples.Num() > 0 ? static_cast<float>(Inside) / static_cast<float>(Samples.Num()) : 0.f;
+	return nullptr;
+}
+
+void USlimeGutContentComponent::SyncClimbTarget()
+{
+	ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner());
+	USlimeSoftVolumeComponent* Soft = SoftSlime ? SoftSlime->GetSoftVolume() : nullptr;
+	if (!Soft)
+	{
+		return;
+	}
+
+	if (ADevourable* Prey = FindPrimaryHeldPrey())
+	{
+		Soft->SetEngulfClimbTarget(Prey);
+	}
+	else
+	{
+		Soft->ClearEngulfClimbTarget();
+	}
 }
 
 void USlimeGutContentComponent::Swallow(ADevourable* Prey)
@@ -103,7 +101,9 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 	Entry.PhaseBob = FMath::FRandRange(0.f, PI * 2.f);
 	Entries.Add(Entry);
 
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Held %s at world (no pull). Cover with body to contain. gut=%d"),
+	SyncClimbTarget();
+
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Held %s — climb-wrap soft volume bottom→top (no center pull). gut=%d"),
 		*Prey->GetLabel(), Entries.Num());
 }
 
@@ -114,6 +114,14 @@ void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
 	if (!Prey || !Root)
 	{
 		return;
+	}
+
+	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
+	{
+		if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
+		{
+			Soft->ClearEngulfClimbTarget();
+		}
 	}
 
 	const FVector SealWorld = Prey->GetActorLocation();
@@ -134,7 +142,9 @@ void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
 		OnGutContained.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Contained %s sealLocal=(%.1f,%.1f,%.1f) — float here, no COM pull"),
+	SyncClimbTarget();
+
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Contained %s after climb-wrap sealLocal=(%.1f,%.1f,%.1f)"),
 		*Prey->GetLabel(), Entry.SealLocalOffset.X, Entry.SealLocalOffset.Y, Entry.SealLocalOffset.Z);
 }
 
@@ -146,12 +156,21 @@ void USlimeGutContentComponent::TickHeldEngulf(FGutEntry& Entry, float Dt)
 		return;
 	}
 
-	// Pin world pose — never attach/pull toward body center.
 	Prey->SetActorLocation(Entry.HeldWorldLocation);
 	Prey->SetActorHiddenInGame(false);
 
-	const float Coverage = ComputeCoverage(Prey);
-	if (Coverage >= EngulfCoverageThreshold)
+	SyncClimbTarget();
+
+	float Climb01 = 0.f;
+	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
+	{
+		if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
+		{
+			Climb01 = Soft->GetEngulfClimbProgress01();
+		}
+	}
+
+	if (Climb01 >= EngulfClimbCompleteThreshold)
 	{
 		Entry.EngulfHoldAccum += Dt;
 		if (Entry.EngulfHoldAccum >= EngulfHoldSeconds)
@@ -171,13 +190,13 @@ void USlimeGutContentComponent::BeginDissolveAll()
 	{
 		if (E.Phase == EGutPhase::Held)
 		{
-			// Never contained — drop without mass commit (tick finishes).
 			E.bAbsorbNotified = true;
 			continue;
 		}
 		E.Phase = EGutPhase::Dissolving;
 		E.bAbsorbNotified = true;
 	}
+	SyncClimbTarget();
 }
 
 void USlimeGutContentComponent::ClearImmediate()
@@ -187,6 +206,13 @@ void USlimeGutContentComponent::ClearImmediate()
 		FinishEntry(E);
 	}
 	Entries.Reset();
+	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
+	{
+		if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
+		{
+			Soft->ClearEngulfClimbTarget();
+		}
+	}
 }
 
 void USlimeGutContentComponent::FinishEntry(FGutEntry& Entry)
@@ -223,7 +249,6 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 		{
 			const float T = (Entry.ContainedAge - GrowDelay) / FMath::Max(0.05f, GrowEaseDuration);
 			const float Clamped = FMath::Clamp(T, 0.f, 1.f);
-			// Ease-out cubic.
 			Entry.Grow01 = 1.f - FMath::Pow(1.f - Clamped, 3.f);
 		}
 
@@ -242,7 +267,6 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 		}
 	}
 
-	// Float / dissolve at seal local offset only (never lerp toward COM).
 	Entry.PhaseBob += Dt * BobSpeed;
 	const float Amp = FloatBobAmplitude;
 	const FVector Bob(
@@ -281,7 +305,6 @@ void USlimeGutContentComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 	for (int32 I = Entries.Num() - 1; I >= 0; --I)
 	{
 		FGutEntry& E = Entries[I];
-		// Held prey cleared on BeginDissolveAll without entering Contained — finish now.
 		if (E.Phase == EGutPhase::Held && E.bAbsorbNotified)
 		{
 			FinishEntry(E);
@@ -298,4 +321,6 @@ void USlimeGutContentComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 			Entries.RemoveAtSwap(I);
 		}
 	}
+
+	SyncClimbTarget();
 }

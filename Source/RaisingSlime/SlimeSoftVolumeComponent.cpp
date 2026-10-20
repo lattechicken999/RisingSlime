@@ -1,7 +1,9 @@
 #include "SlimeSoftVolumeComponent.h"
 #include "SlimePawn.h"
+#include "Devourable.h"
 #include "RaisingSlimeTypes.h"
 #include "Components/SphereComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
@@ -252,6 +254,160 @@ float USlimeSoftVolumeComponent::SampleCoverage(const TArray<FVector>& SamplePoi
 	return static_cast<float>(Inside) / static_cast<float>(SamplePoints.Num());
 }
 
+void USlimeSoftVolumeComponent::RefreshClimbBoundsFromPrey()
+{
+	AActor* Prey = Climb.Prey.Get();
+	if (!Prey)
+	{
+		Climb.bActive = false;
+		return;
+	}
+
+	FVector Origin = Prey->GetActorLocation();
+	FVector Extent(25.f, 25.f, 25.f);
+	if (const ADevourable* Dev = Cast<ADevourable>(Prey))
+	{
+		if (Dev->MeshComponent)
+		{
+			const FBoxSphereBounds B = Dev->MeshComponent->Bounds;
+			Origin = B.Origin;
+			Extent = B.BoxExtent;
+		}
+	}
+	else if (USceneComponent* Root = Prey->GetRootComponent())
+	{
+		const FBoxSphereBounds B = Root->Bounds;
+		Origin = B.Origin;
+		Extent = B.BoxExtent;
+	}
+
+	Climb.Center = Origin;
+	Climb.RadiusXY = FMath::Max(18.f, FMath::Max(Extent.X, Extent.Y));
+	Climb.BottomZ = Origin.Z - Extent.Z;
+	Climb.TopZ = Origin.Z + Extent.Z;
+	if (Climb.TopZ <= Climb.BottomZ + 1.f)
+	{
+		Climb.TopZ = Climb.BottomZ + 40.f;
+	}
+}
+
+void USlimeSoftVolumeComponent::SetEngulfClimbTarget(AActor* Prey)
+{
+	if (!Prey)
+	{
+		ClearEngulfClimbTarget();
+		return;
+	}
+
+	const bool bSame = Climb.bActive && Climb.Prey.Get() == Prey;
+	Climb.Prey = Prey;
+	Climb.bActive = true;
+	RefreshClimbBoundsFromPrey();
+	if (!bSame)
+	{
+		Climb.ClimbFront01 = 0.f;
+		UE_LOG(LogTemp, Display, TEXT("SlimeSoftVol: engulf climb target set r=%.1f h=%.1f"),
+			Climb.RadiusXY, Climb.TopZ - Climb.BottomZ);
+	}
+}
+
+void USlimeSoftVolumeComponent::ClearEngulfClimbTarget()
+{
+	if (Climb.bActive)
+	{
+		UE_LOG(LogTemp, Display, TEXT("SlimeSoftVol: engulf climb cleared (front=%.2f)"), Climb.ClimbFront01);
+	}
+	Climb = FEngulfClimb();
+	for (FParticle& P : Particles)
+	{
+		P.bClimbWrapping = false;
+	}
+}
+
+void USlimeSoftVolumeComponent::ApplyEngulfClimb(ASlimePawn* Pawn, float Dt, const FQuat& YawQ)
+{
+	for (FParticle& P : Particles)
+	{
+		P.bClimbWrapping = false;
+	}
+
+	if (!Climb.bActive || !Pawn || Dt <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	RefreshClimbBoundsFromPrey();
+	if (!Climb.Prey.IsValid())
+	{
+		ClearEngulfClimbTarget();
+		return;
+	}
+
+	const FVector BodyCom = GetBodyCenterWorld();
+	const float PlanarDist = FVector::Dist2D(BodyCom, Climb.Center);
+	const float ContactRange = BodyRadiusCm + Climb.RadiusXY + 28.f;
+	const float Press = FMath::Clamp(1.f - (PlanarDist / FMath::Max(40.f, ContactRange)), 0.f, 1.f);
+
+	if (Press > 0.08f)
+	{
+		// Advance climb front only while player presses body into/around prey.
+		Climb.ClimbFront01 = FMath::Min(1.f, Climb.ClimbFront01 + Dt * EngulfClimbAdvanceRate * (0.35f + 0.65f * Press));
+	}
+	else
+	{
+		Climb.ClimbFront01 = FMath::Max(0.f, Climb.ClimbFront01 - Dt * EngulfClimbDecayRate);
+	}
+
+	const float FrontZ = FMath::Lerp(Climb.BottomZ, Climb.TopZ, Climb.ClimbFront01);
+	const float WrapRange = ContactRange + 20.f;
+	const float Creep = 1.f - FMath::Exp(-FMath::Max(0.5f, EngulfClimbCreepRate) * Dt);
+
+	for (FParticle& P : Particles)
+	{
+		const float PDist = FVector::Dist2D(P.WorldPos, Climb.Center);
+		if (PDist > WrapRange)
+		{
+			continue;
+		}
+
+		FVector Radial(P.WorldPos.X - Climb.Center.X, P.WorldPos.Y - Climb.Center.Y, 0.f);
+		if (Radial.SizeSquared() < 4.f)
+		{
+			const FVector RestXY = YawQ.RotateVector(FVector(P.RestLocal.X, P.RestLocal.Y, 0.f));
+			Radial = FVector(RestXY.X, RestXY.Y, 0.f);
+		}
+		Radial = Radial.GetSafeNormal();
+		if (Radial.IsNearlyZero())
+		{
+			Radial = FVector(1.f, 0.f, 0.f);
+		}
+
+		const float Inflate = Climb.RadiusXY + P.Radius * 0.45f;
+		FVector Target = Climb.Center + Radial * Inflate;
+		// Sleeve fills from bottom up to climb front — ferrofluid rising on a rod.
+		const float DesiredZ = FMath::Clamp(
+			FMath::Lerp(P.WorldPos.Z, FrontZ, 0.75f + 0.2f * Press),
+			Climb.BottomZ + P.Radius * 0.15f,
+			FrontZ);
+		Target.Z = DesiredZ;
+
+		P.WorldPos = FMath::Lerp(P.WorldPos, Target, Creep);
+		P.Velocity = FMath::Lerp(P.Velocity, (Target - P.WorldPos) / FMath::Max(Dt, 0.001f), Creep * 0.5f);
+		P.bClimbWrapping = true;
+		// Prefer sleeve height over floor support while wrapping.
+		P.SupportCenter = Target;
+		P.bHasSupport = true;
+	}
+
+	if (bDebugDraw || CVarSlimeSoftVolDebugDraw.GetValueOnGameThread() != 0)
+	{
+		DrawDebugCylinder(GetWorld(),
+			FVector(Climb.Center.X, Climb.Center.Y, Climb.BottomZ),
+			FVector(Climb.Center.X, Climb.Center.Y, FrontZ),
+			Climb.RadiusXY, 12, FColor(40, 220, 180), false, -1.f, 0, 1.5f);
+	}
+}
+
 bool USlimeSoftVolumeComponent::SweepParticle(AActor* Ignore, const FVector& Start, const FVector& End, float Radius, FHitResult& OutHit) const
 {
 	UWorld* World = GetWorld();
@@ -276,8 +432,14 @@ void USlimeSoftVolumeComponent::ProbeSupports(AActor* Ignore, bool& bOutGrounded
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(SlimeSoftSupport), false, Ignore);
 	for (FParticle& P : Particles)
 	{
+		// Keep ferrofluid sleeve supports — don't snap wrapping particles back to floor.
+		if (P.bClimbWrapping)
+		{
+			bOutGrounded = true;
+			continue;
+		}
+
 		P.bHasSupport = false;
-		// Start slightly above so we still find a surface when already sitting on it.
 		const FVector Start = P.WorldPos + FVector(0.f, 0.f, FMath::Max(2.f, P.Radius * 0.15f));
 		const FVector End = P.WorldPos - FVector(0.f, 0.f, P.Radius + SupportProbeExtraCm);
 		FHitResult Hit;
@@ -289,11 +451,9 @@ void USlimeSoftVolumeComponent::ProbeSupports(AActor* Ignore, bool& bOutGrounded
 		}
 		if (Hit.ImpactNormal.Z < GroundNormalZ)
 		{
-			// Wall / thin-pole side — not a sit surface (keep pierce/settle).
 			continue;
 		}
 
-		// Sphere center that rests on this surface.
 		P.SupportCenter = Hit.ImpactPoint + Hit.ImpactNormal * P.Radius;
 		P.bHasSupport = true;
 		bOutGrounded = true;
@@ -308,10 +468,16 @@ void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, cons
 
 	for (FParticle& P : Particles)
 	{
+		// Climb-wrapping particles are driven by ApplyEngulfClimb — don't yank them back to blob formation.
+		if (P.bClimbWrapping)
+		{
+			P.Velocity *= Damp;
+			continue;
+		}
+
 		const FVector Formation = BodyCenter + YawQ.RotateVector(P.RestLocal - RestComLocal);
 		FVector Target = Formation;
 
-		// Supported particles: XY may ooze toward formation, Z locked to local support.
 		if (P.bHasSupport)
 		{
 			Target.X = Formation.X;
@@ -320,12 +486,10 @@ void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, cons
 		}
 		else
 		{
-			// Free particles: strong XY formation, weak Z (allows drape / hang).
 			Target.Z = FMath::Lerp(P.WorldPos.Z, Formation.Z, VertScale);
 		}
 
 		FVector ToTarget = Target - P.WorldPos;
-		// Soften vertical pull further when unsupported so COM rise doesn't lift floor side.
 		if (!P.bHasSupport)
 		{
 			ToTarget.Z *= VertScale;
@@ -338,12 +502,11 @@ void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, cons
 		FVector BlendTarget = Target;
 		if (!P.bHasSupport)
 		{
-			BlendTarget.Z = P.WorldPos.Z; // don't snap Z via lerp
+			BlendTarget.Z = P.WorldPos.Z;
 		}
 		P.WorldPos = FMath::Lerp(P.WorldPos, BlendTarget, Creep * 0.55f);
 		if (P.bHasSupport)
 		{
-			// Keep Z glued toward support after XY blend.
 			P.WorldPos.Z = FMath::Lerp(P.WorldPos.Z, P.SupportCenter.Z, Creep * 0.85f);
 		}
 	}
@@ -381,6 +544,7 @@ void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, cons
 
 void USlimeSoftVolumeComponent::SettleToSupports(float Dt)
 {
+	// Note: climb-wrapping particles keep sleeve SupportCenter from ApplyEngulfClimb.
 	const float Alpha = 1.f - FMath::Exp(-FMath::Max(0.1f, SupportSettleRate) * Dt);
 	for (FParticle& P : Particles)
 	{
@@ -438,7 +602,11 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	// Sigma kept moderate so half-up / half-down contrast survives; SkinMacroBoost restores read.
 	const float PlanarBias = FMath::Clamp(SkinPlanarBias, 0.f, 1.f);
 	const float MacroBoost = FMath::Clamp(SkinMacroBoost, 0.8f, 2.5f);
-	const float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
+	float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
+	if (Climb.bActive && Climb.ClimbFront01 > 0.02f)
+	{
+		LatScale = FMath::Clamp(FMath::Max(LatScale, EngulfSkinLateralBoost), 0.f, 1.f);
+	}
 	const float Sigma = FMath::Max(16.f, BodyRadiusCm * FMath::Clamp(SkinSigmaScale, 0.25f, 1.f));
 	const float InvTwoSig2 = 1.f / (2.f * Sigma * Sigma);
 
@@ -528,9 +696,11 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 	// 2) Per-particle support heights (rock vs floor) — enables edge drape.
 	ProbeSupports(Pawn, bOutGrounded);
 
-	// 3) Viscous formation: XY together, Z mostly free / support-driven.
+	// 3) Ferrofluid climb-wrap onto Held prey (before formation so sleeve wins).
+	ApplyEngulfClimb(Pawn, Dt, YawQ);
+
+	// 4) Viscous formation: XY together, Z mostly free / support-driven (skips climb wrappers).
 	FVector Com = GetBodyCenterWorld();
-	// Planar-biased COM for formation so a raised rock side doesn't yank floor XY as hard.
 	{
 		FVector PlanarCom = FVector::ZeroVector;
 		int32 N = 0;
@@ -546,10 +716,10 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 	}
 	ApplyViscosity(Dt, YawQ, Com);
 
-	// 4) Creep onto local supports (viscous, no bounce).
+	// 5) Creep onto local supports / climb sleeve (viscous, no bounce).
 	SettleToSupports(Dt);
 
-	// 5) Re-resolve after viscosity (particles may have crept into geometry).
+	// 6) Re-resolve after viscosity (particles may have crept into geometry).
 	for (FParticle& P : Particles)
 	{
 		FHitResult Hit;
@@ -564,10 +734,10 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 		}
 	}
 
-	// 6) Refresh supports after depen / settle so grounded flag stays accurate.
+	// 7) Refresh supports after depen / settle so grounded flag stays accurate.
 	ProbeSupports(Pawn, bOutGrounded);
 
-	// 7) Actor follows particle COM (mid-height when half-on rock — particles keep local Z).
+	// 8) Actor follows particle COM (mid-height when half-on rock — particles keep local Z).
 	SyncActorFromParticles(Pawn);
 	return true;
 }
