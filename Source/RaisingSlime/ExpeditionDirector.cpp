@@ -114,11 +114,16 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 			FMath::RoundToInt(Chance * 100.f));
 	}
 
+	// Swallow attaches the live prey into the body (visible float). No instant hide/pop.
 	if (Slime && Slime->GetGutContent())
 	{
 		Slime->GetGutContent()->Swallow(Prey);
 	}
-	Prey->Consume();
+	else
+	{
+		Prey->Consume();
+		Prey->SetActorHiddenInGame(true);
+	}
 	if (Slime)
 	{
 		Slime->NotifyAte();
@@ -151,10 +156,7 @@ void AExpeditionDirector::OnGutAbsorbed(float Mass, ETraitId Trait, ADevourable*
 
 	SyncActiveFromConfirmed();
 
-	if (Prey)
-	{
-		Prey->BeginRespawnCooldown();
-	}
+	// Prey stays visible while dissolving; FinishGutAndRespawn starts cooldown after melt.
 
 	if (Slime)
 	{

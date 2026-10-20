@@ -27,8 +27,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Prey")
 	bool IsConsumed() const { return bConsumed; }
 
+	bool IsInsideGut() const { return bInsideGut; }
+
 	void StoreHome();
+
+	/** Mark eaten: no collision / not devourable, but stay visible for gut float. */
 	void Consume();
+
+	/** Attach under slime root while keeping world pose (pull-in starts from here). */
+	void AttachIntoGut(USceneComponent* GutRoot);
+
+	/** Hide + detach after absorb dissolve or death; then start respawn timer. */
+	void FinishGutAndRespawn();
+
 	/** Start per-actor respawn after absorb (or death cleanup). */
 	void BeginRespawnCooldown();
 	virtual void RestoreScenePlacement();
@@ -60,7 +71,9 @@ protected:
 	void OnRespawnTimer();
 
 	bool bConsumed = false;
+	bool bInsideGut = false;
 	bool bHomeStored = false;
 	FTransform HomeTransform;
+	FVector HomeScale3D = FVector::OneVector;
 	FTimerHandle RespawnTimer;
 };

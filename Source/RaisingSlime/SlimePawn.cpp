@@ -573,14 +573,13 @@ void ASlimePawn::RefreshBody()
 void ASlimePawn::NotifyAte()
 {
 	AddImpact(0.12f);
-	// Primary devour read is gut swallow + growth; Fluids splash is subtle ooze only.
-	PlayDevourSplash(GetActorLocation());
+	// No Fluids burst on devour — prey attach + float + grow is the read.
 }
 
 void ASlimePawn::PlayDevourSplash(const FVector& AtLocation)
 {
-	const float Subtle = FMath::Clamp(GetBodySize() * 0.22f, 0.2f, 0.4f);
-	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Devour, AtLocation, Subtle);
+	// Intentionally unused for gameplay devour (kept for tooling / spit-adjacent calls).
+	(void)AtLocation;
 }
 
 void ASlimePawn::BeginGutDissolve()
@@ -688,9 +687,9 @@ float ASlimePawn::GetBodySize() const
 {
 	AExpeditionDirector* Director = FindDirector();
 	const float Mass = Director ? Director->GetTotalMass() : 0.f;
-	// Stronger mass→size so swallowed volume reads; gut swell is a short overshoot.
+	// Mass growth + sustained gut occupancy swell (object volume reads while inside).
 	const float Swell = GutContent ? GutContent->GetSwallowSwellBonus() : 0.f;
-	return FMath::Clamp(1.15f + Mass * 0.085f + Swell, 1.15f, 3.4f);
+	return FMath::Clamp(1.15f + Mass * 0.095f + Swell, 1.15f, 3.6f);
 }
 
 float ASlimePawn::ReachMeters() const

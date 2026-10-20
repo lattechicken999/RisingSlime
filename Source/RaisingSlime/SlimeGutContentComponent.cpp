@@ -16,69 +16,73 @@ FVector USlimeGutContentComponent::GutAnchorLocal() const
 	return FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm);
 }
 
+float USlimeGutContentComponent::GetContainedMass() const
+{
+	float Total = 0.f;
+	for (const FGutEntry& E : Entries)
+	{
+		if (!E.bDissolving)
+		{
+			Total += E.Mass;
+		}
+		else
+		{
+			Total += E.Mass * FMath::Max(0.f, 1.f - E.Dissolve01);
+		}
+	}
+	return Total;
+}
+
+float USlimeGutContentComponent::GetSwallowSwellBonus() const
+{
+	return SwellBonus + GetContainedMass() * ContainedMassToSize;
+}
+
 void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 {
-	if (!Prey || !Prey->MeshComponent || !Prey->MeshComponent->GetStaticMesh() || !GetOwner())
+	if (!Prey || !GetOwner())
 	{
 		return;
 	}
 
-	UStaticMeshComponent* Proxy = NewObject<UStaticMeshComponent>(GetOwner(), NAME_None, RF_Transient);
-	if (!Proxy)
+	USceneComponent* Root = GetOwner()->GetRootComponent();
+	if (!Root)
 	{
 		return;
 	}
 
-	Proxy->SetupAttachment(GetOwner()->GetRootComponent());
-	Proxy->RegisterComponent();
-	Proxy->SetStaticMesh(Prey->MeshComponent->GetStaticMesh());
-	Proxy->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Proxy->SetGenerateOverlapEvents(false);
-	Proxy->SetCastShadow(false);
-	Proxy->SetMobility(EComponentMobility::Movable);
+	const FVector WorldLoc = Prey->GetActorLocation();
+	const FVector WorldScale = Prey->GetActorScale3D();
 
-	const int32 Mats = Prey->MeshComponent->GetNumMaterials();
-	for (int32 I = 0; I < Mats; ++I)
-	{
-		Proxy->SetMaterial(I, Prey->MeshComponent->GetMaterial(I));
-	}
-
-	const FVector PreyScale = Prey->GetActorScale3D();
-	const float Uniform = FMath::Max(PreyScale.GetAbsMax(), 0.2f) * FitScale;
-	Proxy->SetRelativeScale3D(FVector(Uniform));
-	Proxy->SetRelativeRotation(FRotator(FMath::FRandRange(-12.f, 12.f), FMath::FRandRange(0.f, 360.f), FMath::FRandRange(-8.f, 8.f)));
-	Proxy->SetVisibility(true);
-	Proxy->SetHiddenInGame(false);
+	Prey->AttachIntoGut(Root);
 
 	FGutEntry Entry;
-	Entry.Mesh = Proxy;
 	Entry.Prey = Prey;
 	Entry.Mass = Prey->Mass;
 	Entry.Trait = Prey->Trait;
 	Entry.AbsorbRemaining = FMath::Max(0.5f, AbsorbDuration);
 	Entry.BaseLocal = GutAnchorLocal() + FVector(
-		FMath::FRandRange(-10.f, 10.f),
-		FMath::FRandRange(-10.f, 10.f),
-		FMath::FRandRange(-6.f, 8.f));
-	if (USceneComponent* Root = GetOwner()->GetRootComponent())
-	{
-		Entry.PullStartLocal = Root->GetComponentTransform().InverseTransformPosition(Prey->GetActorLocation());
-	}
-	else
-	{
-		Entry.PullStartLocal = Entry.BaseLocal;
-	}
-	Proxy->SetRelativeLocation(Entry.PullStartLocal);
+		FMath::FRandRange(-12.f, 12.f),
+		FMath::FRandRange(-12.f, 12.f),
+		FMath::FRandRange(-8.f, 10.f));
+	Entry.PullStartLocal = Root->GetComponentTransform().InverseTransformPosition(WorldLoc);
+	Entry.RestScale3D = WorldScale * FitScale;
 	Entry.Phase = FMath::FRandRange(0.f, PI * 2.f);
-	Entry.RestScale = Uniform;
 	Entry.bPulling = true;
 	Entry.Pull01 = 0.f;
+
+	Prey->SetActorRelativeLocation(Entry.PullStartLocal);
+	Prey->SetActorRelativeScale3D(Entry.RestScale3D);
+	Prey->SetActorRelativeRotation(FRotator(
+		FMath::FRandRange(-12.f, 12.f),
+		FMath::FRandRange(0.f, 360.f),
+		FMath::FRandRange(-8.f, 8.f)));
+
 	Entries.Add(Entry);
+	SwellBonus = FMath::Min(SwellBonus + SwallowSwell + Prey->Mass * 0.04f, 0.7f);
 
-	SwellBonus = FMath::Min(SwellBonus + SwallowSwell, 0.45f);
-
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: swallowed %s mass=%.1f trait=%s absorb=%.1fs (gut=%d)"),
-		*Prey->GetLabel(), Entry.Mass, *TraitText::Name(Entry.Trait), Entry.AbsorbRemaining, Entries.Num());
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: swallowed %s mass=%.1f (visible attach, absorb=%.1fs, gut=%d)"),
+		*Prey->GetLabel(), Entry.Mass, Entry.AbsorbRemaining, Entries.Num());
 }
 
 void USlimeGutContentComponent::BeginDissolveAll()
@@ -86,7 +90,7 @@ void USlimeGutContentComponent::BeginDissolveAll()
 	for (FGutEntry& E : Entries)
 	{
 		E.bDissolving = true;
-		E.bAbsorbNotified = true; // death clears mass via Director; do not double-absorb
+		E.bAbsorbNotified = true;
 	}
 	if (Entries.Num() > 0)
 	{
@@ -98,19 +102,25 @@ void USlimeGutContentComponent::ClearImmediate()
 {
 	for (FGutEntry& E : Entries)
 	{
-		if (E.Mesh)
-		{
-			E.Mesh->DestroyComponent();
-			E.Mesh = nullptr;
-		}
+		FinishEntry(E);
 	}
 	Entries.Reset();
 	SwellBonus = 0.f;
 }
 
+void USlimeGutContentComponent::FinishEntry(FGutEntry& Entry)
+{
+	if (ADevourable* Prey = Entry.Prey.Get())
+	{
+		Prey->FinishGutAndRespawn();
+	}
+	Entry.Prey = nullptr;
+}
+
 void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 {
-	if (!Entry.Mesh)
+	ADevourable* Prey = Entry.Prey.Get();
+	if (!Prey)
 	{
 		return;
 	}
@@ -123,8 +133,8 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 			Entry.AbsorbRemaining = 0.f;
 			Entry.bAbsorbNotified = true;
 			Entry.bDissolving = true;
-			OnGutAbsorbed.ExecuteIfBound(Entry.Mass, Entry.Trait, Entry.Prey.Get());
-			UE_LOG(LogTemp, Display, TEXT("SlimeGut: absorb complete mass=%.1f trait=%s"),
+			OnGutAbsorbed.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
+			UE_LOG(LogTemp, Display, TEXT("SlimeGut: absorb complete mass=%.1f trait=%s — dissolving"),
 				Entry.Mass, *TraitText::Name(Entry.Trait));
 		}
 	}
@@ -140,7 +150,7 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 		Entry.Pull01 = FMath::Clamp(Entry.Pull01 + Dt / FMath::Max(0.1f, PullInSeconds), 0.f, 1.f);
 		const float T = Entry.Pull01 * Entry.Pull01 * (3.f - 2.f * Entry.Pull01);
 		const FVector Target = Entry.BaseLocal + Bob * T;
-		Entry.Mesh->SetRelativeLocation(FMath::Lerp(Entry.PullStartLocal, Target, T));
+		Prey->SetActorRelativeLocation(FMath::Lerp(Entry.PullStartLocal, Target, T));
 		if (Entry.Pull01 >= 1.f)
 		{
 			Entry.bPulling = false;
@@ -148,23 +158,26 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 	}
 	else
 	{
-		Entry.Mesh->SetRelativeLocation(Entry.BaseLocal + Bob);
-		Entry.Mesh->AddLocalRotation(FRotator(0.f, Dt * 18.f, 0.f));
+		Prey->SetActorRelativeLocation(Entry.BaseLocal + Bob);
+		Prey->AddActorLocalRotation(FRotator(0.f, Dt * 22.f, 0.f));
 	}
 
 	if (Entry.bDissolving)
 	{
 		Entry.Dissolve01 = FMath::Clamp(Entry.Dissolve01 + Dt / FMath::Max(0.2f, DissolveSeconds), 0.f, 1.f);
 		const float Remain = 1.f - Entry.Dissolve01;
-		const float S = Entry.RestScale * FMath::Max(0.02f, Remain * Remain);
-		Entry.Mesh->SetRelativeScale3D(FVector(S));
-		Entry.Mesh->SetVisibility(Remain > 0.04f);
-		for (int32 I = 0; I < Entry.Mesh->GetNumMaterials(); ++I)
+		const float S = FMath::Max(0.02f, Remain * Remain);
+		Prey->SetActorRelativeScale3D(Entry.RestScale3D * S);
+		if (UStaticMeshComponent* Mesh = Prey->MeshComponent)
 		{
-			if (UMaterialInstanceDynamic* Mid = Entry.Mesh->CreateAndSetMaterialInstanceDynamic(I))
+			Mesh->SetVisibility(Remain > 0.04f);
+			for (int32 I = 0; I < Mesh->GetNumMaterials(); ++I)
 			{
-				Mid->SetScalarParameterValue(TEXT("Opacity"), Remain);
-				Mid->SetScalarParameterValue(TEXT("Opacity_Appearance"), Remain);
+				if (UMaterialInstanceDynamic* Mid = Mesh->CreateAndSetMaterialInstanceDynamic(I))
+				{
+					Mid->SetScalarParameterValue(TEXT("Opacity"), Remain);
+					Mid->SetScalarParameterValue(TEXT("Opacity_Appearance"), Remain);
+				}
 			}
 		}
 	}
@@ -182,12 +195,10 @@ void USlimeGutContentComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 	for (int32 I = Entries.Num() - 1; I >= 0; --I)
 	{
 		TickEntry(Entries[I], DeltaTime);
-		if (Entries[I].bDissolving && Entries[I].Dissolve01 >= 1.f)
+		if (!Entries[I].Prey.IsValid()
+			|| (Entries[I].bDissolving && Entries[I].Dissolve01 >= 1.f))
 		{
-			if (Entries[I].Mesh)
-			{
-				Entries[I].Mesh->DestroyComponent();
-			}
+			FinishEntry(Entries[I]);
 			Entries.RemoveAtSwap(I);
 		}
 	}

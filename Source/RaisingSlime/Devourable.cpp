@@ -42,7 +42,7 @@ FString ADevourable::GetLabel() const
 
 bool ADevourable::CanDevour() const
 {
-	if (bConsumed || IsHidden())
+	if (bConsumed || bInsideGut || IsHidden())
 	{
 		return false;
 	}
@@ -62,24 +62,70 @@ bool ADevourable::CanDevour() const
 void ADevourable::StoreHome()
 {
 	HomeTransform = GetActorTransform();
+	HomeScale3D = GetActorScale3D();
 	bHomeStored = true;
 }
 
 void ADevourable::Consume()
 {
 	bConsumed = true;
-	SetActorHiddenInGame(true);
+	// Stay visible — gut attach + float is the primary devour read. No pop-hide.
 	SetActorEnableCollision(false);
 	SetActorTickEnabled(false);
+	if (MeshComponent)
+	{
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		MeshComponent->SetGenerateOverlapEvents(false);
+	}
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(RespawnTimer);
 	}
 }
 
+void ADevourable::AttachIntoGut(USceneComponent* GutRoot)
+{
+	if (!GutRoot)
+	{
+		return;
+	}
+
+	bInsideGut = true;
+	Consume();
+	AttachToComponent(GutRoot, FAttachmentTransformRules::KeepWorldTransform);
+	SetActorHiddenInGame(false);
+	SetActorEnableCollision(false);
+	if (MeshComponent)
+	{
+		MeshComponent->SetVisibility(true);
+		MeshComponent->SetHiddenInGame(false);
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+}
+
+void ADevourable::FinishGutAndRespawn()
+{
+	bInsideGut = false;
+	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
+	SetActorHiddenInGame(true);
+	SetActorEnableCollision(false);
+	if (MeshComponent)
+	{
+		MeshComponent->SetVisibility(false);
+		MeshComponent->SetHiddenInGame(true);
+		// Restore mesh scale for next spawn (dissolve may have shrunk it).
+		MeshComponent->SetRelativeScale3D(FVector::OneVector);
+	}
+	SetActorScale3D(HomeScale3D);
+	BeginRespawnCooldown();
+}
+
 void ADevourable::BeginRespawnCooldown()
 {
-	if (!bConsumed)
+	if (!bConsumed && !bInsideGut)
 	{
 		return;
 	}
@@ -112,11 +158,27 @@ void ADevourable::RestoreScenePlacement()
 		StoreHome();
 	}
 
+	if (GetRootComponent() && GetRootComponent()->GetAttachParent())
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
+
 	bConsumed = false;
+	bInsideGut = false;
 	SetActorTransform(HomeTransform);
+	SetActorScale3D(HomeScale3D);
 	SetActorHiddenInGame(false);
 	SetActorEnableCollision(true);
 	SetActorTickEnabled(true);
+
+	if (MeshComponent)
+	{
+		MeshComponent->SetVisibility(true);
+		MeshComponent->SetHiddenInGame(false);
+		MeshComponent->SetRelativeScale3D(FVector::OneVector);
+		MeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		MeshComponent->SetGenerateOverlapEvents(true);
+	}
 
 	if (ACreatureAgent* Agent = Cast<ACreatureAgent>(this))
 	{

@@ -86,6 +86,13 @@ void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Locatio
 		return;
 	}
 
+	// Devour must not read as a pop/burst — gut attach + float is the primary FX.
+	if (Kind == ESlimeSplashKind::Devour)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("SlimeVfx: devour splash suppressed (gut swallow)"));
+		return;
+	}
+
 	UNiagaraSystem* System = LoadSplash(Kind);
 	if (!System)
 	{
