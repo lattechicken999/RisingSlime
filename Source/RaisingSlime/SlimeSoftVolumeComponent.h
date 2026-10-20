@@ -46,6 +46,9 @@ public:
 	/** 0 = base contact only, 1 = wrapped to prey top. */
 	float GetEngulfClimbProgress01() const { return Climb.bActive ? Climb.ClimbFront01 : 0.f; }
 
+	/** Jelly PMC climb skin reads this sleeve (world space). */
+	bool TryGetEngulfClimbSleeve(FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ, float& OutFront01) const;
+
 	FVector SampleDisplacementLocal(const FVector& MeshLocalPoint) const;
 
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
@@ -62,7 +65,7 @@ public:
 
 	/** Extra lateral skin while climb-wrapping (ferrofluid sleeve read). */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Engulf", meta = (ClampMin = "0", ClampMax = "1"))
-	float EngulfSkinLateralBoost = 0.55f;
+	float EngulfSkinLateralBoost = 1.f;
 
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Skin", meta = (ClampMin = "0.25", ClampMax = "1.0"))
 	float SkinSigmaScale = 0.45f;
@@ -95,16 +98,16 @@ public:
 	float GroundNormalZ = 0.45f;
 
 	/** How fast climb front rises while pressing into prey (1/s toward full height). */
-	UPROPERTY(EditAnywhere, Category = "SoftVolume|Engulf", meta = (ClampMin = "0.05", ClampMax = "2.0"))
-	float EngulfClimbAdvanceRate = 0.55f;
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Engulf", meta = (ClampMin = "0.05", ClampMax = "4.0"))
+	float EngulfClimbAdvanceRate = 1.85f;
 
 	/** Viscous follow onto prey surface sleeve (1/s). */
-	UPROPERTY(EditAnywhere, Category = "SoftVolume|Engulf", meta = (ClampMin = "0.5", ClampMax = "12"))
-	float EngulfClimbCreepRate = 4.2f;
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|Engulf", meta = (ClampMin = "0.5", ClampMax = "20"))
+	float EngulfClimbCreepRate = 10.f;
 
 	/** Climb front decays when player backs off (1/s). */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Engulf", meta = (ClampMin = "0", ClampMax = "2"))
-	float EngulfClimbDecayRate = 0.35f;
+	float EngulfClimbDecayRate = 0.2f;
 
 protected:
 	struct FParticle
