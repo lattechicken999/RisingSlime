@@ -1,4 +1,5 @@
 #include "SlimeVfx.h"
+#include "SlimeTrailMark.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Engine/Engine.h"
@@ -46,11 +47,6 @@ namespace
 		}
 	}
 
-	const TCHAR* FootOozePath()
-	{
-		return TEXT("/Game/FX/NS_FootOoze_Fluids.NS_FootOoze_Fluids");
-	}
-
 	UNiagaraSystem* LoadSplash(ESlimeSplashKind Kind)
 	{
 		if (UNiagaraSystem* Fluids = LoadObject<UNiagaraSystem>(nullptr, PathFor(Kind)))
@@ -58,11 +54,6 @@ namespace
 			return Fluids;
 		}
 		return LoadObject<UNiagaraSystem>(nullptr, LegacyPathFor(Kind));
-	}
-
-	UNiagaraSystem* LoadFootOoze()
-	{
-		return LoadObject<UNiagaraSystem>(nullptr, FootOozePath());
 	}
 
 	void ScreenNote(UWorld* World, const FString& Msg, const FColor& Color)
@@ -83,10 +74,10 @@ void SlimeVfx::Warmup(UWorld* World)
 	const bool bDevour = LoadSplash(ESlimeSplashKind::Devour) != nullptr;
 	const bool bSpit = LoadSplash(ESlimeSplashKind::Spit) != nullptr;
 	const bool bDeath = LoadSplash(ESlimeSplashKind::Death) != nullptr;
-	const bool bOoze = LoadFootOoze() != nullptr;
+	// Foot trail is C++ ASlimeTrailMark — NS_FootOoze_Fluids / SW_Drop intentionally unused.
 	const FString Msg = FString::Printf(
-		TEXT("SlimeVfx: warmup devour=%d spit=%d death=%d footOoze=%d"),
-		bDevour ? 1 : 0, bSpit ? 1 : 0, bDeath ? 1 : 0, bOoze ? 1 : 0);
+		TEXT("SlimeVfx: warmup devour=%d spit=%d death=%d footTrail=cpp(no SW_Drop)"),
+		bDevour ? 1 : 0, bSpit ? 1 : 0, bDeath ? 1 : 0);
 	ScreenNote(World, Msg, (bDevour && bSpit && bDeath) ? FColor::Green : FColor::Orange);
 }
 
@@ -134,7 +125,7 @@ void SlimeVfx::Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Locatio
 		FColor::Cyan);
 }
 
-void SlimeVfx::TickContactOoze(
+void SlimeVfx::TickFootSlimeTrail(
 	UWorld* World,
 	AActor* Owner,
 	float& InOutCooldown,
@@ -151,7 +142,7 @@ void SlimeVfx::TickContactOoze(
 
 	InOutCooldown = FMath::Max(0.f, InOutCooldown - Dt);
 
-	// Viscous drip while sliding on contact — idle / air = silent.
+	// Trail only while sliding on contact — idle / air = silent.
 	constexpr float MinSpeedCm = 28.f;
 	if (!bGrounded || PlanarSpeedCm < MinSpeedCm)
 	{
@@ -162,30 +153,16 @@ void SlimeVfx::TickContactOoze(
 		return;
 	}
 
-	UNiagaraSystem* System = LoadFootOoze();
-	if (!System)
-	{
-		return;
-	}
-
-	// Faster crawl → slightly shorter gap; stay lazy (ooze, not spray).
 	const float Speed01 = FMath::Clamp((PlanarSpeedCm - MinSpeedCm) / 420.f, 0.f, 1.f);
-	InOutCooldown = FMath::Lerp(0.38f, 0.22f, Speed01);
+	// Sparse marks along the path (not a continuous water sheet).
+	InOutCooldown = FMath::Lerp(0.42f, 0.26f, Speed01);
 
-	// Item-only: slightly larger than contact footprint — never water sheets / splash.
-	const float Scale = FMath::Clamp(0.08f + BodySize * 0.05f + Speed01 * 0.04f, 0.08f, 0.20f);
-	const FVector SpawnAt = FeetLocation + FVector(0.f, 0.f, 2.f);
+	// Footprint-sized: slightly larger than contact only.
+	const float DiameterCm = FMath::Clamp(28.f + BodySize * 22.f + Speed01 * 8.f, 24.f, 72.f);
+	const float Lifetime = FMath::Lerp(0.95f, 0.65f, Speed01);
 
-	UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		World,
-		System,
-		SpawnAt,
-		FRotator::ZeroRotator,
-		FVector(Scale),
-		true,
-		true,
-		ENCPoolMethod::AutoRelease,
-		true);
+	ASlimeTrailMark::SpawnAt(World, FeetLocation, DiameterCm, Lifetime);
 
-	UE_LOG(LogTemp, Verbose, TEXT("SlimeVfx: contact ooze scale=%.2f speed=%.0f"), Scale, PlanarSpeedCm);
+	UE_LOG(LogTemp, Verbose, TEXT("SlimeVfx: foot trail diam=%.0fcm life=%.2f speed=%.0f"),
+		DiameterCm, Lifetime, PlanarSpeedCm);
 }

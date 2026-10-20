@@ -9,8 +9,9 @@ class UStaticMeshComponent;
 class ASlimePawn;
 
 /**
- * Hunt pickup: enables ASlimePawn::bFootOozeFromItem (tiny contact ooze while moving).
- * Default WASD has no ooze without this item. Respawns after cooldown.
+ * Hunt pickup: enables ASlimePawn::bFootOozeFromItem (short-lived slime trail marks while moving).
+ * Default WASD has no trail without this item. Respawns after cooldown.
+ * Class name kept; effect is trail marks — not Fluids SW_Drop water.
  */
 UCLASS()
 class RAISINGSLIME_API AFootOozePickup : public AActor

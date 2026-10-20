@@ -22,12 +22,11 @@ namespace SlimeVfx
 	void Play(UWorld* World, ESlimeSplashKind Kind, const FVector& Location, float BodySize = 1.f);
 
 	/**
-	 * Subtle viscous foot/contact ooze while grounded + moving.
+	 * Item-gated foot slime trail: short-lived footprint mark where the slime passed.
 	 * Caller must gate (ASlimePawn::bFootOozeFromItem) — default movement must NOT call this.
-	 * Spawn footprint stays slightly larger than contact only (not big water sheets).
-	 * NOT splashy, NOT devour-pop. Rate-limited Fluids drop (or silent if asset missing).
+	 * NOT Niagara Fluids / SW_Drop — no sideways water spread or persistent pool.
 	 */
-	void TickContactOoze(
+	void TickFootSlimeTrail(
 		UWorld* World,
 		AActor* Owner,
 		float& InOutCooldown,
@@ -36,4 +35,18 @@ namespace SlimeVfx
 		bool bGrounded,
 		float BodySize,
 		float Dt);
+
+	/** @deprecated Name kept for call-site clarity during rename — forwards to TickFootSlimeTrail. */
+	inline void TickContactOoze(
+		UWorld* World,
+		AActor* Owner,
+		float& InOutCooldown,
+		const FVector& FeetLocation,
+		float PlanarSpeedCm,
+		bool bGrounded,
+		float BodySize,
+		float Dt)
+	{
+		TickFootSlimeTrail(World, Owner, InOutCooldown, FeetLocation, PlanarSpeedCm, bGrounded, BodySize, Dt);
+	}
 }

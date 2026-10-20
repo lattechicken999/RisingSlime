@@ -45,9 +45,13 @@ public:
 	UFUNCTION(Exec)
 	void GiveTraitPurgeItem();
 
-	/** Dev cheat: enable item foot ooze on possessed slime. */
+	/** Dev cheat: enable item foot slime trail on possessed slime. */
 	UFUNCTION(Exec)
 	void GiveFootOozeItem();
+
+	/** Alias — same as GiveFootOozeItem (trail, not Fluids ooze). */
+	UFUNCTION(Exec)
+	void GiveFootTrailItem();
 
 protected:
 	void BuildRuntimeInput();

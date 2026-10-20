@@ -79,9 +79,9 @@ void AFootOozePickup::Collect(ASlimePawn* SoftSlime)
 		return;
 	}
 
-	SoftSlime->SetFootOozeFromItem(true);
+	SoftSlime->SetFootTrailFromItem(true);
 	UE_LOG(LogTemp, Display,
-		TEXT("FootOozePickup: collected — NS_FootOoze_Fluids while grounded+moving (NOT Shift; item gate only)"));
+		TEXT("FootTrailPickup: collected — slime trail marks while grounded+moving (no SW_Drop; item gate only)"));
 	SetAvailable(false);
 
 	if (UWorld* World = GetWorld())

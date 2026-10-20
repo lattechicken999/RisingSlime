@@ -31,14 +31,15 @@ def main():
     record("build.module", "PASS" if class_ok("/Script/RaisingSlime.SlimePawn") else "FAIL", "SlimePawn")
     record("gut.spit_api", "PASS" if class_ok("/Script/RaisingSlime.SlimeGutContentComponent") else "FAIL", "TrySpitUnabsorbedPrey in module")
     record("pickup.purge", "PASS" if class_ok("/Script/RaisingSlime.TraitPurgePickup") else "FAIL")
-    record("pickup.foot_ooze", "PASS" if class_ok("/Script/RaisingSlime.FootOozePickup") else "FAIL")
+    record("pickup.foot_trail", "PASS" if class_ok("/Script/RaisingSlime.FootOozePickup") else "FAIL")
+    record("trail.mark_class", "PASS" if class_ok("/Script/RaisingSlime.SlimeTrailMark") else "FAIL")
     record("flesh.default_off", "PASS", "bEnableFleshExperiment=false (code default; not toggled)")
     record("vfx.spit_fluids", "PASS" if asset_exists("/Game/FX/NS_SpitSplash_Fluids") else "FAIL")
-    record("vfx.foot_ooze", "PASS" if asset_exists("/Game/FX/NS_FootOoze_Fluids") else "FAIL")
+    record("vfx.foot_sw_drop_unused", "PASS", "NS_FootOoze_Fluids/SW_Drop not used; ASlimeTrailMark instead")
     record("mat.m_slime", "PASS" if asset_exists("/Game/Materials/M_Slime") else "FAIL")
     record("map.hunt", "PASS" if asset_exists("/Game/Maps/Hunt") else "FAIL")
     record("input.spit_rule", "PASS", "Q: gut Held/Contained first, else Confirmed[0]; CycleTrait=R")
-    record("ooze.default_off", "PASS", "bFootOozeFromItem default false; scale clamp 0.08-0.20")
+    record("trail.default_off", "PASS", "bFootOozeFromItem default false; TickFootSlimeTrail gated")
     record("nest.digest_gone", "PASS", "DigestMenu disabled; field absorb + Tab panel")
 
     # Interactive PIE items — mark as CODE_OK / needs human eyes for feel.
@@ -46,7 +47,7 @@ def main():
     record("pie.creep_climb", "CODE_OK", "ApplyObstacleCreepClimb + bEnableStepUp=false")
     record("pie.q_spit", "CODE_OK", "SpitActive gut-first then trait")
     record("pie.purge_pickup", "CODE_OK", "TraitPurgePickup + runtime spawn")
-    record("pie.foot_ooze_gated", "CODE_OK", "FootOozePickup / GiveFootOozeItem")
+    record("pie.foot_trail_gated", "CODE_OK", "FootOozePickup / GiveFootTrailItem → ASlimeTrailMark")
     record("pie.death_respawn", "CODE_OK", "Director Die → PlayerStart; prey RespawnCooldown")
 
     fails = [r for r in RESULTS if r[1] == "FAIL"]

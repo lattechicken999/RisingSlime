@@ -371,12 +371,12 @@ void ASlimePawn::Tick(float DeltaSeconds)
 		++Steps;
 	}
 
-	// Foot ooze: item/trait opt-in only (bFootOozeFromItem). Default OFF — no WASD trail.
-	// Shift is NOT bound to sprint/ooze; NS_FootOoze_Fluids (SW_Drop) only runs after FootOozePickup.
+	// Foot slime trail: item opt-in only (bFootOozeFromItem). Default OFF — no WASD marks.
+	// Uses ASlimeTrailMark (not NS_FootOoze_Fluids / SW_Drop). Shift unbound.
 	if (bFootOozeFromItem && Movement)
 	{
 		const float PlanarSpeed = Movement->GetPlanarVelocity().Size();
-		SlimeVfx::TickContactOoze(
+		SlimeVfx::TickFootSlimeTrail(
 			GetWorld(),
 			this,
 			ContactOozeCooldown,

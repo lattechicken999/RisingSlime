@@ -133,10 +133,15 @@ void ARaisingSlimePlayerController::GiveTraitPurgeItem()
 
 void ARaisingSlimePlayerController::GiveFootOozeItem()
 {
+	GiveFootTrailItem();
+}
+
+void ARaisingSlimePlayerController::GiveFootTrailItem()
+{
 	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetPawn()))
 	{
-		SoftSlime->SetFootOozeFromItem(true);
-		UE_LOG(LogTemp, Display, TEXT("GiveFootOozeItem: tiny contact ooze enabled"));
+		SoftSlime->SetFootTrailFromItem(true);
+		UE_LOG(LogTemp, Display, TEXT("GiveFootTrailItem: short-lived slime trail marks enabled"));
 	}
 }
 
@@ -213,8 +218,8 @@ void ARaisingSlimePlayerController::StripShiftSprintMappings()
 		return;
 	}
 
-	// RisingSlime has no IA_Sprint / crouch. Foot ooze is item-gated (bFootOozeFromItem),
-	// not Shift. Strip any leftover Shift bindings so Shift cannot trigger Fluids/SW_Drop.
+	// RisingSlime has no IA_Sprint / crouch. Foot trail is item-gated (bFootOozeFromItem),
+	// not Shift. Strip any leftover Shift bindings.
 	static const FKey ShiftKeys[] = { EKeys::LeftShift, EKeys::RightShift };
 	TArray<FEnhancedActionKeyMapping> Snapshot = MappingContext->GetMappings();
 	int32 Removed = 0;

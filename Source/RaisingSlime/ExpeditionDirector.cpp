@@ -38,14 +38,14 @@ void AExpeditionDirector::BeginPlay()
 		}
 		if (!UGameplayStatics::GetActorOfClass(World, AFootOozePickup::StaticClass()))
 		{
-			// Far from nest so spawn-walk does not accidentally enable floor water (SW_Drop ooze).
+			// Far from nest so spawn-walk does not accidentally enable trail marks.
 			const FVector Loc(-520.f, 380.f, 40.f);
 			if (AFootOozePickup* Pickup = World->SpawnActor<AFootOozePickup>(Loc, FRotator::ZeroRotator, Params))
 			{
 #if WITH_EDITOR
-				Pickup->SetActorLabel(TEXT("Pickup_FootOoze"));
+				Pickup->SetActorLabel(TEXT("Pickup_FootTrail"));
 #endif
-				UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_FootOoze at runtime"));
+				UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_FootTrail at runtime"));
 			}
 		}
 	}
