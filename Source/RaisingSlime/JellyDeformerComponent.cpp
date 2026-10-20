@@ -634,6 +634,109 @@ void UJellyDeformerComponent::ApplySoftVolumeSkin()
 	}
 }
 
+void UJellyDeformerComponent::ApplyEngulfClimbSkin()
+{
+	const ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner());
+	const USlimeSoftVolumeComponent* Soft = Pawn ? Pawn->GetSoftVolume() : nullptr;
+	if (!Soft || !Mesh || Current.Num() == 0 || Rest.Num() != Current.Num())
+	{
+		return;
+	}
+
+	FVector CenterW = FVector::ZeroVector;
+	float RadiusXY = 0.f;
+	float BottomZ = 0.f;
+	float TopZ = 0.f;
+	float Front01 = 0.f;
+	if (!Soft->TryGetEngulfClimbSleeve(CenterW, RadiusXY, BottomZ, TopZ, Front01) || Front01 < 0.02f)
+	{
+		return;
+	}
+
+	const FTransform MeshXf = Mesh->GetComponentTransform();
+	const float FrontZ = FMath::Lerp(BottomZ, TopZ, Front01);
+	const float WorldR = RestRadiusCm() * BodyScale;
+	// Reach the dome wall so the pool pulls onto the rock sides.
+	const float InflR = RadiusXY + WorldR * 1.25f;
+	const float CoatMin = 10.f;
+	const float CoatMax = FMath::Max(18.f, WorldR * 0.42f);
+
+	int32 Lifted = 0;
+	float MaxBlend = 0.f;
+	for (int32 I = 0; I < Current.Num(); ++I)
+	{
+		const FVector WorldPos = MeshXf.TransformPosition(Current[I]);
+		const float DistXY = FVector::Dist2D(WorldPos, CenterW);
+		if (DistXY > InflR)
+		{
+			continue;
+		}
+
+		// Strong near the rock axis — includes the flat meniscus crown verts (previous BottomBias killed these).
+		const float U = 1.f - DistXY / InflR;
+		const float RadialW = U * U * (3.f - 2.f * U);
+		const float RestH01 = FMath::Clamp((Rest[I].Z / RestRadiusCm() + 1.f) * 0.5f, 0.f, 1.f);
+		// Ferrofluid fill: lower shell climbs first; as Front01 rises, mid/top shell wraps the crown.
+		const float FillW = SmoothStep(FMath::Clamp((Front01 + 0.35f - RestH01 * 0.5f) / 0.65f, 0.f, 1.f));
+		const float W = FMath::Clamp(RadialW * FMath::Max(0.4f, FillW) * FMath::Clamp(Front01 * 1.35f, 0.f, 1.f), 0.f, 1.f);
+		if (W < 0.03f)
+		{
+			continue;
+		}
+
+		FVector Radial(WorldPos.X - CenterW.X, WorldPos.Y - CenterW.Y, 0.f);
+		if (Radial.SizeSquared() < 1.f)
+		{
+			Radial = MeshXf.TransformVectorNoScale(FVector(Rest[I].X, Rest[I].Y, 0.f));
+			Radial.Z = 0.f;
+		}
+		Radial = Radial.GetSafeNormal();
+		if (Radial.IsNearlyZero())
+		{
+			Radial = FVector(1.f, 0.f, 0.f);
+		}
+
+		// Coat thickness from rest shell radius — piles a visible sleeve outside the prey surface.
+		const float RestRadXY = FVector2D(Rest[I].X, Rest[I].Y).Size();
+		const float Coat = FMath::Lerp(CoatMin, CoatMax, FMath::Clamp(RestRadXY / RestRadiusCm(), 0.f, 1.f));
+		const float SleeveR = RadiusXY + Coat;
+
+		// Height: press climbs the collar toward the crown (not a flat plane through the rock).
+		const float HeightT = FMath::Clamp(RestH01 * 0.35f + Front01 * 1.05f, 0.f, 1.f);
+		const float WantZ = FMath::Lerp(BottomZ + Coat * 0.4f, FrontZ + Coat * 0.2f, HeightT);
+
+		FVector TargetW = CenterW + Radial * SleeveR;
+		TargetW.Z = WantZ;
+
+		const FVector TargetLocal = MeshXf.InverseTransformPosition(TargetW);
+		// Hard blend — silhouette must read as climb-wrap, not sphere overlap.
+		const float Blend = FMath::Clamp(W * 0.98f, 0.f, 0.98f);
+		Current[I] = FMath::Lerp(Current[I], TargetLocal, Blend);
+		if (Pose.IsValidIndex(I))
+		{
+			Pose[I] = FMath::Lerp(Pose[I], TargetLocal, Blend * 0.9f);
+		}
+		if (Velocity.IsValidIndex(I))
+		{
+			Velocity[I] *= (1.f - Blend * 0.85f);
+		}
+		MaxBlend = FMath::Max(MaxBlend, Blend);
+		++Lifted;
+	}
+
+	if (Lifted > 0)
+	{
+		static float JellyClimbLogAccum = 0.f;
+		JellyClimbLogAccum += 0.016f;
+		if (JellyClimbLogAccum >= 0.35f)
+		{
+			JellyClimbLogAccum = 0.f;
+			UE_LOG(LogTemp, Display, TEXT("JellyClimbSkin: front=%.2f lifted=%d/%d frontZ=%.1f (bot=%.1f top=%.1f) maxBlend=%.2f"),
+				Front01, Lifted, Current.Num(), FrontZ, BottomZ, TopZ, MaxBlend);
+		}
+	}
+}
+
 void UJellyDeformerComponent::UpdateSmoothedEngulfs(float Dt, float StepUpCm)
 {
 	for (const FEngulfSite& P : PendingEngulfs)
@@ -1185,8 +1288,22 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	StepSprings(Dt);
 	// Soft-volume drape after springs so particle support heights win the silhouette.
 	ApplySoftVolumeSkin();
-	// Re-clamp after soft skin so airborne particle lag can't needle the shell.
-	ClampCurrentToRest();
+
+	const USlimeSoftVolumeComponent* SoftClimb = nullptr;
+	if (const ASlimePawn* SoftPawn = Cast<ASlimePawn>(GetOwner()))
+	{
+		SoftClimb = SoftPawn->GetSoftVolume();
+	}
+	const bool bClimbSkin =
+		SoftClimb && SoftClimb->HasEngulfClimbTarget() && SoftClimb->GetEngulfClimbProgress01() > 0.02f;
+	if (!bClimbSkin)
+	{
+		// Re-clamp after soft skin so airborne particle lag can't needle the shell.
+		ClampCurrentToRest();
+	}
+	// Ferrofluid climb sleeve — hard PMC reshape (Gaussian soft skin alone stays a flat dome).
+	// Skip MaxStretch clamp while climbing so the collar can reach prey crown height.
+	ApplyEngulfClimbSkin();
 	WriteMesh();
 
 	PrevWorldVelocityCms = WorldVelocityCms;

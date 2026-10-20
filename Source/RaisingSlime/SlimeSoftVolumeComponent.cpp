@@ -324,6 +324,20 @@ void USlimeSoftVolumeComponent::ClearEngulfClimbTarget()
 	}
 }
 
+bool USlimeSoftVolumeComponent::TryGetEngulfClimbSleeve(FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ, float& OutFront01) const
+{
+	if (!Climb.bActive || !Climb.Prey.IsValid())
+	{
+		return false;
+	}
+	OutCenter = Climb.Center;
+	OutRadiusXY = Climb.RadiusXY;
+	OutBottomZ = Climb.BottomZ;
+	OutTopZ = Climb.TopZ;
+	OutFront01 = Climb.ClimbFront01;
+	return true;
+}
+
 void USlimeSoftVolumeComponent::ApplyEngulfClimb(ASlimePawn* Pawn, float Dt, const FQuat& YawQ)
 {
 	for (FParticle& P : Particles)
@@ -345,13 +359,13 @@ void USlimeSoftVolumeComponent::ApplyEngulfClimb(ASlimePawn* Pawn, float Dt, con
 
 	const FVector BodyCom = GetBodyCenterWorld();
 	const float PlanarDist = FVector::Dist2D(BodyCom, Climb.Center);
-	const float ContactRange = BodyRadiusCm + Climb.RadiusXY + 28.f;
-	const float Press = FMath::Clamp(1.f - (PlanarDist / FMath::Max(40.f, ContactRange)), 0.f, 1.f);
+	const float ContactRange = BodyRadiusCm + Climb.RadiusXY + 55.f;
+	const float Press = FMath::Clamp(1.f - (PlanarDist / FMath::Max(50.f, ContactRange)), 0.f, 1.f);
 
-	if (Press > 0.08f)
+	if (Press > 0.02f)
 	{
-		// Advance climb front only while player presses body into/around prey.
-		Climb.ClimbFront01 = FMath::Min(1.f, Climb.ClimbFront01 + Dt * EngulfClimbAdvanceRate * (0.35f + 0.65f * Press));
+		// Broad press: even light overlap advances the collar so silhouette moves immediately.
+		Climb.ClimbFront01 = FMath::Min(1.f, Climb.ClimbFront01 + Dt * EngulfClimbAdvanceRate * (0.55f + 0.45f * Press));
 	}
 	else
 	{
@@ -359,9 +373,10 @@ void USlimeSoftVolumeComponent::ApplyEngulfClimb(ASlimePawn* Pawn, float Dt, con
 	}
 
 	const float FrontZ = FMath::Lerp(Climb.BottomZ, Climb.TopZ, Climb.ClimbFront01);
-	const float WrapRange = ContactRange + 20.f;
+	const float WrapRange = ContactRange + 50.f;
 	const float Creep = 1.f - FMath::Exp(-FMath::Max(0.5f, EngulfClimbCreepRate) * Dt);
 
+	int32 Wrapped = 0;
 	for (FParticle& P : Particles)
 	{
 		const float PDist = FVector::Dist2D(P.WorldPos, Climb.Center);
@@ -382,21 +397,29 @@ void USlimeSoftVolumeComponent::ApplyEngulfClimb(ASlimePawn* Pawn, float Dt, con
 			Radial = FVector(1.f, 0.f, 0.f);
 		}
 
-		const float Inflate = Climb.RadiusXY + P.Radius * 0.45f;
+		const float Inflate = Climb.RadiusXY + P.Radius * 0.7f;
 		FVector Target = Climb.Center + Radial * Inflate;
-		// Sleeve fills from bottom up to climb front — ferrofluid rising on a rod.
-		const float DesiredZ = FMath::Clamp(
-			FMath::Lerp(P.WorldPos.Z, FrontZ, 0.75f + 0.2f * Press),
-			Climb.BottomZ + P.Radius * 0.15f,
-			FrontZ);
-		Target.Z = DesiredZ;
+		// Pile particles onto sleeve up to climb front (collar climbs toward crown).
+		Target.Z = FrontZ;
 
 		P.WorldPos = FMath::Lerp(P.WorldPos, Target, Creep);
-		P.Velocity = FMath::Lerp(P.Velocity, (Target - P.WorldPos) / FMath::Max(Dt, 0.001f), Creep * 0.5f);
+		P.Velocity = FMath::Lerp(P.Velocity, (Target - P.WorldPos) / FMath::Max(Dt, 0.001f), Creep * 0.55f);
 		P.bClimbWrapping = true;
-		// Prefer sleeve height over floor support while wrapping.
 		P.SupportCenter = Target;
 		P.bHasSupport = true;
+		++Wrapped;
+	}
+
+	if (Wrapped > 0)
+	{
+		static float SoftClimbLogAccum = 0.f;
+		SoftClimbLogAccum += Dt;
+		if (SoftClimbLogAccum >= 0.35f)
+		{
+			SoftClimbLogAccum = 0.f;
+			UE_LOG(LogTemp, Display, TEXT("SlimeSoftVol climb: front=%.2f press=%.2f wrapped=%d frontZ=%.1f"),
+				Climb.ClimbFront01, Press, Wrapped, FrontZ);
+		}
 	}
 
 	if (bDebugDraw || CVarSlimeSoftVolDebugDraw.GetValueOnGameThread() != 0)
@@ -634,6 +657,36 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	Out.X *= LatScale;
 	Out.Y *= LatScale;
 	Out.Z *= MacroBoost;
+
+	// Hard sleeve bias: Gaussian average alone reads as flat dome through the rock.
+	if (Climb.bActive && Climb.ClimbFront01 > 0.02f)
+	{
+		const FVector SampleWorld = Center + YawQ.RotateVector(MeshLocalPoint);
+		const float DistXY = FVector::Dist2D(SampleWorld, Climb.Center);
+		const float InflR = Climb.RadiusXY + BodyRadiusCm * 1.2f;
+		if (DistXY < InflR)
+		{
+			const float U = 1.f - DistXY / InflR;
+			const float SleeveW = FMath::Clamp(U * U * Climb.ClimbFront01 * 1.25f, 0.f, 1.f);
+			FVector Radial(SampleWorld.X - Climb.Center.X, SampleWorld.Y - Climb.Center.Y, 0.f);
+			if (Radial.SizeSquared() < 1.f)
+			{
+				Radial = FVector(MeshLocalPoint.X, MeshLocalPoint.Y, 0.f);
+			}
+			Radial = Radial.GetSafeNormal();
+			if (Radial.IsNearlyZero())
+			{
+				Radial = FVector(1.f, 0.f, 0.f);
+			}
+			const float FrontZ = FMath::Lerp(Climb.BottomZ, Climb.TopZ, Climb.ClimbFront01);
+			const float Coat = 12.f + BodyRadiusCm * 0.2f * FMath::Clamp(FVector2D(MeshLocalPoint.X, MeshLocalPoint.Y).Size() / FMath::Max(1.f, BodyRadiusCm), 0.f, 1.f);
+			FVector SleeveWorld = Climb.Center + Radial * (Climb.RadiusXY + Coat);
+			SleeveWorld.Z = FrontZ + Coat * 0.15f;
+			const FVector WantDisp = InvYaw.RotateVector(SleeveWorld - SampleWorld);
+			Out = FMath::Lerp(Out, WantDisp, SleeveW * 0.9f);
+		}
+	}
+
 	return Out;
 }
 

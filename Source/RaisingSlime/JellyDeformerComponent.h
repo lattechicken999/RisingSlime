@@ -255,6 +255,11 @@ protected:
 	void ApplyEngulfWrap();
 	/** Displace verts from soft-volume particle field (primary collision paradigm). */
 	void ApplySoftVolumeSkin();
+	/**
+	 * Direct PMC sleeve up Held prey (ferrofluid silhouette).
+	 * Must run AFTER ClampCurrentToRest — soft-volume Gaussian alone stays a flat dome.
+	 */
+	void ApplyEngulfClimbSkin();
 	void BuildPose(const FVector& LocalVelocityCms, const FVector& LocalAccelCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);
 	void ApplyVolumePreservation();
