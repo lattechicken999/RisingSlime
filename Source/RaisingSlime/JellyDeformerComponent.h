@@ -255,7 +255,7 @@ protected:
 	void ApplyEngulfWrap();
 	/** Displace verts from soft-volume particle field (primary collision paradigm). */
 	void ApplySoftVolumeSkin();
-	/** Glue sink (option C): local body verts adhere/sink around Held prey — no ribbon meshes. */
+	/** Retired stub (surface-drift replaced glue sink skin). */
 	void ApplyGlueSinkSkin();
 	void BuildPose(const FVector& LocalVelocityCms, const FVector& LocalAccelCms);
 	void ApplyGround(float Dt, bool bGrounded, float GroundImpactSpeedMps);

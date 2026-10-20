@@ -2,7 +2,6 @@
 #include "Devourable.h"
 #include "SlimePawn.h"
 #include "SlimeSoftVolumeComponent.h"
-#include "SlimeMovementComponent.h"
 #include "SlimeEngulfVenomComponent.h"
 #include "RaisingSlimeTypes.h"
 #include "Components/StaticMeshComponent.h"
@@ -49,16 +48,34 @@ float USlimeGutContentComponent::GetSwallowSwellBonus() const
 	return GetContainedMass() * ContainedMassToSize;
 }
 
-float USlimeGutContentComponent::GetPrimarySink01() const
+float USlimeGutContentComponent::GetBodyRadiusCm() const
 {
-	for (const FGutEntry& E : Entries)
+	if (const ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
 	{
-		if (E.Phase == EGutPhase::Held)
+		if (const USlimeSoftVolumeComponent* Soft = Pawn->GetSoftVolume())
 		{
-			return E.Sink01;
+			return Soft->GetBodyRadiusCm();
+		}
+		return Pawn->GetBodySize() * 50.f;
+	}
+	return 50.f;
+}
+
+FVector USlimeGutContentComponent::GetBodyCenterLocal(const USceneComponent* Root) const
+{
+	if (!Root)
+	{
+		return FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm);
+	}
+	FVector CenterW = Root->GetComponentLocation() + FVector(0.f, 0.f, RaisingSlimeUnits::BodyHeightCm);
+	if (const ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
+	{
+		if (const USlimeSoftVolumeComponent* Soft = Pawn->GetSoftVolume())
+		{
+			CenterW = Soft->GetBodyCenterWorld();
 		}
 	}
-	return 0.f;
+	return Root->GetComponentTransform().InverseTransformPosition(CenterW);
 }
 
 ADevourable* USlimeGutContentComponent::FindPrimaryHeldPrey() const
@@ -76,108 +93,56 @@ ADevourable* USlimeGutContentComponent::FindPrimaryHeldPrey() const
 	return nullptr;
 }
 
-void USlimeGutContentComponent::GetPreyBounds(const ADevourable* Prey, FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ) const
+float USlimeGutContentComponent::GetPrimaryDrift01() const
 {
-	OutCenter = Prey ? Prey->GetActorLocation() : FVector::ZeroVector;
-	OutRadiusXY = 28.f;
-	OutBottomZ = OutCenter.Z - 25.f;
-	OutTopZ = OutCenter.Z + 25.f;
-	if (!Prey)
+	USceneComponent* Root = GetOwner() ? GetOwner()->GetRootComponent() : nullptr;
+	if (!Root)
 	{
-		return;
+		return 0.f;
 	}
-	if (Prey->MeshComponent)
-	{
-		const FBoxSphereBounds B = Prey->MeshComponent->Bounds;
-		OutCenter = B.Origin;
-		OutRadiusXY = FMath::Max(16.f, FMath::Max(B.BoxExtent.X, B.BoxExtent.Y));
-		OutBottomZ = B.Origin.Z - B.BoxExtent.Z;
-		OutTopZ = B.Origin.Z + B.BoxExtent.Z;
-	}
-	if (OutTopZ <= OutBottomZ + 1.f)
-	{
-		OutTopZ = OutBottomZ + 40.f;
-	}
-}
-
-bool USlimeGutContentComponent::TryGetGlueSink(FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ, float& OutSink01) const
-{
+	const FVector CenterLocal = GetBodyCenterLocal(Root);
+	const float BodyR = FMath::Max(20.f, GetBodyRadiusCm());
+	const float SurfaceDist = BodyR * SurfaceStickScale;
+	const float ContainedDist = BodyR * ContainedRadiusFraction;
 	for (const FGutEntry& E : Entries)
 	{
 		if (E.Phase != EGutPhase::Held)
 		{
 			continue;
 		}
-		ADevourable* Prey = E.Prey.Get();
-		if (!Prey || E.Sink01 < 0.02f)
-		{
-			continue;
-		}
-		GetPreyBounds(Prey, OutCenter, OutRadiusXY, OutBottomZ, OutTopZ);
-		OutSink01 = E.Sink01;
-		return true;
+		const float Dist = FVector::Dist(E.StickLocalOffset, CenterLocal);
+		const float Span = FMath::Max(1.f, SurfaceDist - ContainedDist);
+		return FMath::Clamp(1.f - (Dist - ContainedDist) / Span, 0.f, 1.f);
 	}
-	return false;
+	return 0.f;
 }
 
-void USlimeGutContentComponent::ComputeGlueContact(const ADevourable* Prey, bool& bOutContact, float& OutRub01) const
+void USlimeGutContentComponent::AttachPreyToSurface(ADevourable* Prey, FGutEntry& Entry)
 {
-	bOutContact = false;
-	OutRub01 = 0.f;
-	if (!Prey || !GetOwner())
+	USceneComponent* Root = GetOwner() ? GetOwner()->GetRootComponent() : nullptr;
+	if (!Prey || !Root)
 	{
 		return;
 	}
 
-	const ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner());
-	FVector BodyXY = GetOwner()->GetActorLocation();
-	float BodyR = 50.f;
-	if (Pawn && Pawn->GetSoftVolume())
+	const FVector CenterLocal = GetBodyCenterLocal(Root);
+	const float BodyR = FMath::Max(20.f, GetBodyRadiusCm());
+	FVector PreyLocal = Root->GetComponentTransform().InverseTransformPosition(Prey->GetActorLocation());
+	FVector Dir = PreyLocal - CenterLocal;
+	Dir.Z *= 0.65f; // prefer side/front stick on the blob, not underground
+	if (Dir.SizeSquared() < 1.f)
 	{
-		BodyXY = Pawn->GetSoftVolume()->GetBodyCenterWorld();
-		BodyR = Pawn->GetSoftVolume()->GetBodyRadiusCm();
+		Dir = FVector(1.f, 0.f, 0.15f);
 	}
+	Dir.Normalize();
+	Entry.StickLocalOffset = CenterLocal + Dir * (BodyR * SurfaceStickScale);
 
-	FVector PreyCenter;
-	float PreyR, BottomZ, TopZ;
-	GetPreyBounds(Prey, PreyCenter, PreyR, BottomZ, TopZ);
-
-	const float DistXY = FVector::Dist2D(BodyXY, PreyCenter);
-	const float ContactRange = BodyR + PreyR + 38.f;
-	bOutContact = DistXY < ContactRange;
-	if (!bOutContact)
-	{
-		return;
-	}
-
-	FVector ToPrey(PreyCenter.X - BodyXY.X, PreyCenter.Y - BodyXY.Y, 0.f);
-	if (ToPrey.SizeSquared() < 1.f)
-	{
-		OutRub01 = 0.25f;
-		return;
-	}
-	ToPrey.Normalize();
-	const FVector Tangent(-ToPrey.Y, ToPrey.X, 0.f);
-
-	FVector MoveXY = FVector::ZeroVector;
-	if (Pawn && Pawn->GetSlimeMovement())
-	{
-		MoveXY = Pawn->GetSlimeMovement()->GetMoveIntent();
-		MoveXY.Z = 0.f;
-		if (MoveXY.SizeSquared() < 80.f)
-		{
-			MoveXY = Pawn->GetSlimeMovement()->GetPlanarVelocity();
-			MoveXY.Z = 0.f;
-		}
-	}
-	if (MoveXY.SizeSquared() < 4.f)
-	{
-		OutRub01 = 0.f;
-		return;
-	}
-	MoveXY.Normalize();
-	// Light rub = motion along prey tangent (or any planar move while stuck).
-	OutRub01 = FMath::Clamp(FMath::Abs(FVector::DotProduct(MoveXY, Tangent)) + 0.35f * FMath::Abs(FVector::DotProduct(MoveXY, ToPrey)), 0.f, 1.f);
+	const FVector WorldScale = Prey->GetActorScale3D();
+	Prey->AttachToComponent(Root, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	Prey->SetActorRelativeLocation(Entry.StickLocalOffset);
+	Prey->SetActorRelativeScale3D(WorldScale);
+	Prey->SetActorHiddenInGame(false);
+	Entry.RestScale3D = Prey->GetActorRelativeScale3D();
 }
 
 void USlimeGutContentComponent::Swallow(ADevourable* Prey)
@@ -194,12 +159,11 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 	Entry.Phase = EGutPhase::Held;
 	Entry.Mass = Prey->Mass;
 	Entry.Trait = Prey->Trait;
-	Entry.HeldWorldLocation = Prey->GetActorLocation();
-	Entry.RestScale3D = Prey->GetActorScale3D();
 	Entry.AbsorbRemaining = FMath::Max(0.5f, AbsorbDuration);
 	Entry.PhaseBob = FMath::FRandRange(0.f, PI * 2.f);
-	Entry.Sink01 = 0.f;
 	Entries.Add(Entry);
+	FGutEntry& Added = Entries.Last();
+	AttachPreyToSurface(Prey, Added);
 
 	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
 	{
@@ -214,8 +178,9 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 		}
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Held %s — glue sink (world-pinned, no ribbons). gut=%d"),
-		*Prey->GetLabel(), Entries.Num());
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Held %s — surface stick then drift to center. gut=%d stickLocal=(%.1f,%.1f,%.1f)"),
+		*Prey->GetLabel(), Entries.Num(),
+		Added.StickLocalOffset.X, Added.StickLocalOffset.Y, Added.StickLocalOffset.Z);
 }
 
 void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
@@ -227,27 +192,14 @@ void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
 		return;
 	}
 
-	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
-	{
-		if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
-		{
-			Soft->ClearEngulfClimbTarget();
-		}
-		if (USlimeEngulfVenomComponent* Venom = SoftSlime->GetEngulfVenom())
-		{
-			Venom->Clear();
-		}
-	}
-
-	const FVector SealWorld = Prey->GetActorLocation();
-	Entry.SealLocalOffset = Root->GetComponentTransform().InverseTransformPosition(SealWorld);
-	Entry.HeldWorldLocation = SealWorld;
+	Entry.SealLocalOffset = Entry.StickLocalOffset;
 	Entry.Phase = EGutPhase::Contained;
 	Entry.ContainedAge = 0.f;
 	Entry.Grow01 = 0.f;
 	Entry.AbsorbRemaining = FMath::Max(0.5f, AbsorbDuration);
 	Entry.bAbsorbNotified = false;
 
+	// Already attached from Held — refresh seal pose.
 	Prey->SealIntoGut(Root, Entry.SealLocalOffset);
 	Entry.RestScale3D = Prey->GetActorRelativeScale3D();
 
@@ -257,56 +209,53 @@ void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
 		OnGutContained.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Contained %s after Sink01=%.2f sealLocal=(%.1f,%.1f,%.1f)"),
-		*Prey->GetLabel(), Entry.Sink01, Entry.SealLocalOffset.X, Entry.SealLocalOffset.Y, Entry.SealLocalOffset.Z);
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Contained %s after surface-drift sealLocal=(%.1f,%.1f,%.1f)"),
+		*Prey->GetLabel(), Entry.SealLocalOffset.X, Entry.SealLocalOffset.Y, Entry.SealLocalOffset.Z);
 }
 
-void USlimeGutContentComponent::TickHeldGlue(FGutEntry& Entry, float Dt)
+void USlimeGutContentComponent::TickHeldDrift(FGutEntry& Entry, float Dt)
 {
 	ADevourable* Prey = Entry.Prey.Get();
-	if (!Prey)
+	USceneComponent* Root = GetOwner() ? GetOwner()->GetRootComponent() : nullptr;
+	if (!Prey || !Root)
 	{
 		return;
 	}
 
-	// World-pinned — no COM yank.
-	Prey->SetActorLocation(Entry.HeldWorldLocation);
+	const FVector CenterLocal = GetBodyCenterLocal(Root);
+	const float BodyR = FMath::Max(20.f, GetBodyRadiusCm());
+	const float ContainedDist = BodyR * ContainedRadiusFraction;
+
+	// Overdamped radial creep toward body center (readable, not instant yank).
+	const float Alpha = 1.f - FMath::Exp(-FMath::Max(0.15f, DriftRate) * Dt);
+	Entry.StickLocalOffset = FMath::Lerp(Entry.StickLocalOffset, CenterLocal, Alpha);
+
+	Prey->SetActorRelativeLocation(Entry.StickLocalOffset);
 	Prey->SetActorHiddenInGame(false);
 
-	bool bContact = false;
-	float Rub01 = 0.f;
-	ComputeGlueContact(Prey, bContact, Rub01);
+	const float Dist = FVector::Dist(Entry.StickLocalOffset, CenterLocal);
+	const float Drift01 = GetPrimaryDrift01();
 
-	if (bContact)
+	static float DriftLogAccum = 0.f;
+	DriftLogAccum += Dt;
+	if (DriftLogAccum >= 0.35f)
 	{
-		const float Rate = SinkHoldRate + Rub01 * SinkRubBonus;
-		Entry.Sink01 = FMath::Clamp(Entry.Sink01 + Rate * Dt, 0.f, 1.f);
-	}
-	else
-	{
-		Entry.Sink01 = FMath::Max(0.f, Entry.Sink01 - SinkReleaseDecay * Dt);
+		DriftLogAccum = 0.f;
+		UE_LOG(LogTemp, Display, TEXT("SlimeGut drift: dist=%.1f / R=%.1f drift01=%.2f hold=%.2f"),
+			Dist, BodyR, Drift01, Entry.ContainedHoldAccum);
 	}
 
-	static float GlueLogAccum = 0.f;
-	GlueLogAccum += Dt;
-	if (GlueLogAccum >= 0.35f)
+	if (Dist <= ContainedDist)
 	{
-		GlueLogAccum = 0.f;
-		UE_LOG(LogTemp, Display, TEXT("SlimeGut glue: Sink01=%.2f contact=%d rub=%.2f hold=%.2f"),
-			Entry.Sink01, bContact ? 1 : 0, Rub01, Entry.SinkHoldAccum);
-	}
-
-	if (Entry.Sink01 >= SinkCompleteThreshold)
-	{
-		Entry.SinkHoldAccum += Dt;
-		if (Entry.SinkHoldAccum >= SinkHoldSeconds)
+		Entry.ContainedHoldAccum += Dt;
+		if (Entry.ContainedHoldAccum >= ContainedHoldSeconds)
 		{
 			EnterContained(Entry);
 		}
 	}
 	else
 	{
-		Entry.SinkHoldAccum = FMath::Max(0.f, Entry.SinkHoldAccum - Dt * 2.f);
+		Entry.ContainedHoldAccum = FMath::Max(0.f, Entry.ContainedHoldAccum - Dt * 2.f);
 	}
 }
 
@@ -363,7 +312,7 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 
 	if (Entry.Phase == EGutPhase::Held)
 	{
-		TickHeldGlue(Entry, Dt);
+		TickHeldDrift(Entry, Dt);
 		return;
 	}
 
@@ -390,7 +339,7 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 				Entry.bAbsorbNotified = true;
 				Entry.Phase = EGutPhase::Dissolving;
 				OnGutAbsorbed.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
-				UE_LOG(LogTemp, Display, TEXT("SlimeGut: absorb complete mass=%.1f — dissolving at seal"),
+				UE_LOG(LogTemp, Display, TEXT("SlimeGut: absorb complete mass=%.1f — dissolving inside"),
 					Entry.Mass);
 			}
 		}

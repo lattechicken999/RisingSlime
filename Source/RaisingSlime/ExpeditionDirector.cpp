@@ -90,7 +90,7 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 
 	if (Prey->Trait == ETraitId::None || bAlready)
 	{
-		Status = FString::Printf(TEXT("%s을(를) 붙잡았다. 몸으로 완전히 감싸라."), *Prey->GetLabel());
+		Status = FString::Printf(TEXT("%s을(를) 겉에 붙였다. 안쪽으로 스며든다."), *Prey->GetLabel());
 	}
 	else if (bSuccess)
 	{
@@ -98,7 +98,7 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 		Active = Prey->Trait;
 		Pity.Add(Prey->Trait, 0);
 		Status = FString::Printf(
-			TEXT("%s의 %s — 몸으로 감싸 삼켜라 (%d%%)."),
+			TEXT("%s의 %s — 겉에 붙어 안쪽으로 (%d%%)."),
 			*Prey->GetLabel(),
 			*TraitText::Name(Prey->Trait),
 			FMath::RoundToInt(Chance * 100.f));
@@ -108,7 +108,7 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 		const int32 Fails = Pity.FindRef(Prey->Trait);
 		Pity.Add(Prey->Trait, Fails + 1);
 		Status = FString::Printf(
-			TEXT("%s을(를) 붙잡았다. %s 흡수 실패 (%d%%). 몸으로 감싸라."),
+			TEXT("%s을(를) 겉에 붙였다. %s 흡수 실패 (%d%%). 안쪽으로 스며든다."),
 			*Prey->GetLabel(),
 			*TraitText::Name(Prey->Trait),
 			FMath::RoundToInt(Chance * 100.f));
