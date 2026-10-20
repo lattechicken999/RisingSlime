@@ -1,6 +1,7 @@
 #include "JellyDeformerComponent.h"
 #include "SlimePawn.h"
 #include "SlimeSoftVolumeComponent.h"
+#include "SlimeGutContentComponent.h"
 #include "RaisingSlimeTypes.h"
 #include "Materials/MaterialInterface.h"
 #include "Async/ParallelFor.h"
@@ -567,6 +568,78 @@ void UJellyDeformerComponent::GatherEngulfObstacles()
 		if (bStat)
 		{
 			TryAcceptHit(HitStat);
+		}
+	}
+}
+
+void UJellyDeformerComponent::ApplyGlueSinkSkin()
+{
+	const ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner());
+	const USlimeGutContentComponent* Gut = Pawn ? Pawn->GetGutContent() : nullptr;
+	if (!Gut || !Mesh || Current.Num() == 0 || Rest.Num() != Current.Num())
+	{
+		return;
+	}
+
+	FVector CenterW = FVector::ZeroVector;
+	float RadiusXY = 0.f;
+	float BottomZ = 0.f;
+	float TopZ = 0.f;
+	float Sink01 = 0.f;
+	if (!Gut->TryGetGlueSink(CenterW, RadiusXY, BottomZ, TopZ, Sink01) || Sink01 < 0.02f)
+	{
+		return;
+	}
+
+	const FTransform MeshXf = Mesh->GetComponentTransform();
+	const float WorldR = RestRadiusCm() * BodyScale;
+	const float InflR = RadiusXY + WorldR * 0.95f;
+	const float PreyH = FMath::Max(10.f, TopZ - BottomZ);
+	// Sink depth: body surface creeps onto prey as Sink01 rises (prey stays world-pinned).
+	const float Embed = FMath::Lerp(0.15f, 0.92f, Sink01);
+
+	for (int32 I = 0; I < Current.Num(); ++I)
+	{
+		const FVector WorldPos = MeshXf.TransformPosition(Current[I]);
+		const float DistXY = FVector::Dist2D(WorldPos, CenterW);
+		if (DistXY > InflR)
+		{
+			continue;
+		}
+
+		const float U = 1.f - DistXY / InflR;
+		const float W = FMath::Clamp(U * U * Sink01 * 1.15f, 0.f, 1.f);
+		if (W < 0.04f)
+		{
+			continue;
+		}
+
+		FVector Radial(WorldPos.X - CenterW.X, WorldPos.Y - CenterW.Y, 0.f);
+		if (Radial.SizeSquared() < 1.f)
+		{
+			Radial = MeshXf.TransformVectorNoScale(FVector(Rest[I].X, Rest[I].Y, 0.f));
+			Radial.Z = 0.f;
+		}
+		Radial = Radial.GetSafeNormal();
+		if (Radial.IsNearlyZero())
+		{
+			Radial = FVector(1.f, 0.f, 0.f);
+		}
+
+		const float RestH01 = FMath::Clamp((Rest[I].Z / RestRadiusCm() + 1.f) * 0.5f, 0.f, 1.f);
+		const float Coat = FMath::Lerp(6.f, 16.f, FMath::Clamp(FVector2D(Rest[I].X, Rest[I].Y).Size() / RestRadiusCm(), 0.f, 1.f));
+		// Stick to prey hull; higher Sink01 pulls surface deeper onto the rock.
+		const float StickR = FMath::Lerp(RadiusXY + Coat, RadiusXY * (1.f - 0.35f * Embed) + Coat * 0.4f, Embed);
+		const float StickZ = FMath::Lerp(BottomZ + 6.f, FMath::Lerp(BottomZ, TopZ, RestH01 * 0.85f), Sink01);
+
+		FVector TargetW = CenterW + Radial * StickR;
+		TargetW.Z = StickZ;
+		const FVector TargetLocal = MeshXf.InverseTransformPosition(TargetW);
+		const float Blend = FMath::Clamp(W * 0.88f, 0.f, 0.88f);
+		Current[I] = FMath::Lerp(Current[I], TargetLocal, Blend);
+		if (Pose.IsValidIndex(I))
+		{
+			Pose[I] = FMath::Lerp(Pose[I], TargetLocal, Blend * 0.75f);
 		}
 	}
 }
@@ -1187,6 +1260,8 @@ void UJellyDeformerComponent::Step(float Dt, const FVector& WorldVelocityCms, co
 	ApplySoftVolumeSkin();
 	// Re-clamp after soft skin so airborne particle lag can't needle the shell.
 	ClampCurrentToRest();
+	// Glue sink local adhere — after clamp so MaxStretch doesn't kill the contact sink.
+	ApplyGlueSinkSkin();
 	WriteMesh();
 
 	PrevWorldVelocityCms = WorldVelocityCms;

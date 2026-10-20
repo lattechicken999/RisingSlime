@@ -39,7 +39,7 @@ public:
 	bool ContainsWorldPoint(const FVector& WorldPos) const;
 	float SampleCoverage(const TArray<FVector>& SamplePoints) const;
 
-	/** Retired — no-op (Contained uses gut Engulf01 + venom ribbons). */
+	/** Retired — no-op (Contained uses gut Sink01 glue). */
 	void SetEngulfClimbTarget(AActor* Prey);
 	void ClearEngulfClimbTarget();
 	bool HasEngulfClimbTarget() const { return false; }

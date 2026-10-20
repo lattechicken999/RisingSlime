@@ -43,27 +43,12 @@ void USlimeEngulfVenomComponent::EnsureMeshes()
 	}
 }
 
-void USlimeEngulfVenomComponent::BeginEngulf(AActor* InPrey, UMaterialInterface* SlimeMaterial)
+void USlimeEngulfVenomComponent::BeginEngulf(AActor* InPrey, UMaterialInterface* /*SlimeMaterial*/)
 {
-	if (!InPrey)
-	{
-		Clear();
-		return;
-	}
-
-	EnsureMeshes();
-	Prey = InPrey;
-	Material = SlimeMaterial;
-	Target01 = 0.f;
-	Visual01 = 0.f;
-	Fade01 = 0.f;
-	bActive = true;
-	bFading = false;
-	RefreshPreyBounds();
-	RebuildAllRibbons();
-
-	UE_LOG(LogTemp, Display, TEXT("EngulfVenom: begin wrap prey=%s r=%.1f h=%.1f"),
-		*InPrey->GetName(), PreyRadiusXY, PreyTopZ - PreyBottomZ);
+	// Retired — Glue sink uses body deform only (no ribbon/claw meshes).
+	(void)InPrey;
+	Clear();
+	SetComponentTickEnabled(false);
 }
 
 void USlimeEngulfVenomComponent::SetEngulfProgress01(float Engulf01)
@@ -313,31 +298,13 @@ void USlimeEngulfVenomComponent::RebuildAllRibbons()
 void USlimeEngulfVenomComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	if (!bActive)
-	{
-		return;
-	}
-
-	if (!Prey.IsValid())
+	(void)DeltaTime;
+	(void)TickType;
+	(void)ThisTickFunction;
+	// Hard off — option C Glue sink (no ribbon presentation).
+	if (bActive)
 	{
 		Clear();
-		return;
 	}
-
-	RefreshPreyBounds();
-
-	const float Follow = 1.f - FMath::Exp(-FMath::Max(0.5f, VisualFollowRate) * DeltaTime);
-	Visual01 = FMath::Lerp(Visual01, Target01, Follow);
-
-	if (bFading)
-	{
-		Fade01 = FMath::Clamp(Fade01 + DeltaTime / FMath::Max(0.08f, FadeOutSeconds), 0.f, 1.f);
-		if (Fade01 >= 1.f)
-		{
-			Clear();
-			return;
-		}
-	}
-
-	RebuildAllRibbons();
+	SetComponentTickEnabled(false);
 }

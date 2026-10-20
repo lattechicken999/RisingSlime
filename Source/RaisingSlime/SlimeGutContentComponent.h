@@ -6,7 +6,6 @@
 #include "SlimeGutContentComponent.generated.h"
 
 class ADevourable;
-class USlimeEngulfVenomComponent;
 
 UENUM()
 enum class EGutPhase : uint8
@@ -20,8 +19,8 @@ DECLARE_DELEGATE_ThreeParams(FOnGutAbsorbed, float /*Mass*/, ETraitId /*Trait*/,
 DECLARE_DELEGATE_ThreeParams(FOnGutContained, float /*Mass*/, ETraitId /*Trait*/, ADevourable* /*Prey*/);
 
 /**
- * Natural devour (alt B′): Held + press-meter Engulf01 + venom ribbons → Contained seal float.
- * No center pull. Soft-volume climb sleeve is not Contained authority.
+ * Glue sink (option C): Held world-pinned → Sink01 while stuck/rubbing → Contained seal float.
+ * No COM pull, no venom ribbons, no climb sleeve Contained authority.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeGutContentComponent : public UActorComponent
@@ -41,7 +40,10 @@ public:
 	float GetSwallowSwellBonus() const;
 	float GetContainedMass() const;
 	float GetPendingHeldMass() const;
-	float GetPrimaryEngulf01() const;
+	float GetPrimarySink01() const;
+
+	/** Held glue target for local jelly deform (world-pinned prey). */
+	bool TryGetGlueSink(FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ, float& OutSink01) const;
 
 	FOnGutAbsorbed OnGutAbsorbed;
 	FOnGutContained OnGutContained;
@@ -49,24 +51,26 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Gut|Absorb")
 	float AbsorbDuration = 8.f;
 
-	/** Contained when press-meter reaches this. */
-	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0.5", ClampMax = "1.0"))
-	float EngulfCompleteThreshold = 0.98f;
+	/** Contained when Sink01 reaches this. */
+	UPROPERTY(EditAnywhere, Category = "Gut|Glue", meta = (ClampMin = "0.5", ClampMax = "1.0"))
+	float SinkCompleteThreshold = 0.98f;
 
-	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0.05", ClampMax = "0.5"))
-	float EngulfHoldSeconds = 0.12f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Glue", meta = (ClampMin = "0.05", ClampMax = "0.4"))
+	float SinkHoldSeconds = 0.1f;
 
-	/** Engulf01 charge while Contact && Press (1/s). */
-	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0.1", ClampMax = "3"))
-	float EngulfChargeRate = 0.9f;
+	/**
+	 * Sink01/s while in contact even without move (~0.75s to full at 1.35).
+	 * Fast glue: Prey_Rock Contained in ~0.6–1.2s with contact.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Gut|Glue", meta = (ClampMin = "0.2", ClampMax = "4"))
+	float SinkHoldRate = 1.45f;
 
-	/** Slow leak while touching but not pressing. */
-	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0", ClampMax = "2"))
-	float EngulfIdleDecay = 0.12f;
+	/** Extra Sink01/s from light tangential rub while contacting. */
+	UPROPERTY(EditAnywhere, Category = "Gut|Glue", meta = (ClampMin = "0", ClampMax = "4"))
+	float SinkRubBonus = 1.1f;
 
-	/** Faster drop when contact lost. */
-	UPROPERTY(EditAnywhere, Category = "Gut|Engulf", meta = (ClampMin = "0", ClampMax = "3"))
-	float EngulfReleaseDecay = 0.55f;
+	UPROPERTY(EditAnywhere, Category = "Gut|Glue", meta = (ClampMin = "0", ClampMax = "4"))
+	float SinkReleaseDecay = 1.4f;
 
 	UPROPERTY(EditAnywhere, Category = "Gut|Float")
 	float FloatBobAmplitude = 6.f;
@@ -96,8 +100,8 @@ protected:
 		FVector HeldWorldLocation = FVector::ZeroVector;
 		FVector SealLocalOffset = FVector::ZeroVector;
 		FVector RestScale3D = FVector::OneVector;
-		float Engulf01 = 0.f;
-		float EngulfHoldAccum = 0.f;
+		float Sink01 = 0.f;
+		float SinkHoldAccum = 0.f;
 		float ContainedAge = 0.f;
 		float Grow01 = 0.f;
 		float AbsorbRemaining = 8.f;
@@ -108,18 +112,12 @@ protected:
 	};
 
 	void TickEntry(FGutEntry& Entry, float Dt);
-	void TickHeldEngulf(FGutEntry& Entry, float Dt);
+	void TickHeldGlue(FGutEntry& Entry, float Dt);
 	void EnterContained(FGutEntry& Entry);
 	void FinishEntry(FGutEntry& Entry);
-	void SyncVenomPresentation();
 	ADevourable* FindPrimaryHeldPrey() const;
-	USlimeEngulfVenomComponent* GetVenom() const;
-	void ComputePressContact(const ADevourable* Prey, float& OutPress, bool& bOutContact) const;
-	void TickVenomDemo(float Dt);
+	void ComputeGlueContact(const ADevourable* Prey, bool& bOutContact, float& OutRub01) const;
+	void GetPreyBounds(const ADevourable* Prey, FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ) const;
 
 	TArray<FGutEntry> Entries;
-	bool bVenomDemo = false;
-	float VenomDemoAge = 0.f;
-	float VenomDemoQuitAccum = 0.f;
-	int32 VenomDemoShot = 0;
 };

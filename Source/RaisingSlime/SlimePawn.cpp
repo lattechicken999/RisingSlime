@@ -107,6 +107,12 @@ void ASlimePawn::BeginPlay()
 		GutContent->OnGutContained.BindUObject(this, &ASlimePawn::HandleGutContained);
 		GutContent->OnGutAbsorbed.BindUObject(this, &ASlimePawn::HandleGutAbsorbed);
 	}
+	// Venom ribbons retired (Glue sink). Keep subobject for hot-reload safety but inert.
+	if (EngulfVenom)
+	{
+		EngulfVenom->Clear();
+		EngulfVenom->SetComponentTickEnabled(false);
+	}
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
 	{
 		PC->SetCursorUnlocked(false);

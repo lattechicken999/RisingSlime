@@ -7,19 +7,11 @@
 #include "RaisingSlimeTypes.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "Materials/MaterialInterface.h"
-#include "Misc/CommandLine.h"
-#include "Misc/Paths.h"
-#include "Engine/Engine.h"
-#include "Kismet/GameplayStatics.h"
-#include "UnrealClient.h"
-#include "HAL/FileManager.h"
 
 USlimeGutContentComponent::USlimeGutContentComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
-	bVenomDemo = FParse::Param(FCommandLine::Get(), TEXT("VenomEngulfDemo"));
 }
 
 float USlimeGutContentComponent::GetPendingHeldMass() const
@@ -57,13 +49,13 @@ float USlimeGutContentComponent::GetSwallowSwellBonus() const
 	return GetContainedMass() * ContainedMassToSize;
 }
 
-float USlimeGutContentComponent::GetPrimaryEngulf01() const
+float USlimeGutContentComponent::GetPrimarySink01() const
 {
 	for (const FGutEntry& E : Entries)
 	{
 		if (E.Phase == EGutPhase::Held)
 		{
-			return E.Engulf01;
+			return E.Sink01;
 		}
 	}
 	return 0.f;
@@ -84,46 +76,54 @@ ADevourable* USlimeGutContentComponent::FindPrimaryHeldPrey() const
 	return nullptr;
 }
 
-USlimeEngulfVenomComponent* USlimeGutContentComponent::GetVenom() const
+void USlimeGutContentComponent::GetPreyBounds(const ADevourable* Prey, FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ) const
 {
-	ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner());
-	return Pawn ? Pawn->GetEngulfVenom() : nullptr;
-}
-
-void USlimeGutContentComponent::SyncVenomPresentation()
-{
-	USlimeEngulfVenomComponent* Venom = GetVenom();
-	if (!Venom)
-	{
-		return;
-	}
-
-	ADevourable* Prey = FindPrimaryHeldPrey();
+	OutCenter = Prey ? Prey->GetActorLocation() : FVector::ZeroVector;
+	OutRadiusXY = 28.f;
+	OutBottomZ = OutCenter.Z - 25.f;
+	OutTopZ = OutCenter.Z + 25.f;
 	if (!Prey)
 	{
 		return;
 	}
-
-	if (!Venom->IsActive())
+	if (Prey->MeshComponent)
 	{
-		UMaterialInterface* Mat = nullptr;
-		if (ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
-		{
-			Mat = Pawn->GetCachedSlimeMaterial();
-		}
-		if (!Mat)
-		{
-			Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_Slime.M_Slime"));
-		}
-		Venom->BeginEngulf(Prey, Mat);
+		const FBoxSphereBounds B = Prey->MeshComponent->Bounds;
+		OutCenter = B.Origin;
+		OutRadiusXY = FMath::Max(16.f, FMath::Max(B.BoxExtent.X, B.BoxExtent.Y));
+		OutBottomZ = B.Origin.Z - B.BoxExtent.Z;
+		OutTopZ = B.Origin.Z + B.BoxExtent.Z;
 	}
-	Venom->SetEngulfProgress01(GetPrimaryEngulf01());
+	if (OutTopZ <= OutBottomZ + 1.f)
+	{
+		OutTopZ = OutBottomZ + 40.f;
+	}
 }
 
-void USlimeGutContentComponent::ComputePressContact(const ADevourable* Prey, float& OutPress, bool& bOutContact) const
+bool USlimeGutContentComponent::TryGetGlueSink(FVector& OutCenter, float& OutRadiusXY, float& OutBottomZ, float& OutTopZ, float& OutSink01) const
 {
-	OutPress = 0.f;
+	for (const FGutEntry& E : Entries)
+	{
+		if (E.Phase != EGutPhase::Held)
+		{
+			continue;
+		}
+		ADevourable* Prey = E.Prey.Get();
+		if (!Prey || E.Sink01 < 0.02f)
+		{
+			continue;
+		}
+		GetPreyBounds(Prey, OutCenter, OutRadiusXY, OutBottomZ, OutTopZ);
+		OutSink01 = E.Sink01;
+		return true;
+	}
+	return false;
+}
+
+void USlimeGutContentComponent::ComputeGlueContact(const ADevourable* Prey, bool& bOutContact, float& OutRub01) const
+{
 	bOutContact = false;
+	OutRub01 = 0.f;
 	if (!Prey || !GetOwner())
 	{
 		return;
@@ -138,46 +138,46 @@ void USlimeGutContentComponent::ComputePressContact(const ADevourable* Prey, flo
 		BodyR = Pawn->GetSoftVolume()->GetBodyRadiusCm();
 	}
 
-	FVector PreyOrigin = Prey->GetActorLocation();
-	float PreyR = 30.f;
-	if (Prey->MeshComponent)
+	FVector PreyCenter;
+	float PreyR, BottomZ, TopZ;
+	GetPreyBounds(Prey, PreyCenter, PreyR, BottomZ, TopZ);
+
+	const float DistXY = FVector::Dist2D(BodyXY, PreyCenter);
+	const float ContactRange = BodyR + PreyR + 38.f;
+	bOutContact = DistXY < ContactRange;
+	if (!bOutContact)
 	{
-		const FBoxSphereBounds B = Prey->MeshComponent->Bounds;
-		PreyOrigin = B.Origin;
-		PreyR = FMath::Max(16.f, FMath::Max(B.BoxExtent.X, B.BoxExtent.Y));
+		return;
 	}
 
-	const float DistXY = FVector::Dist2D(BodyXY, PreyOrigin);
-	const float ContactRange = BodyR + PreyR + 42.f;
-	bOutContact = DistXY < ContactRange;
-
-	FVector ToPrey(PreyOrigin.X - BodyXY.X, PreyOrigin.Y - BodyXY.Y, 0.f);
+	FVector ToPrey(PreyCenter.X - BodyXY.X, PreyCenter.Y - BodyXY.Y, 0.f);
 	if (ToPrey.SizeSquared() < 1.f)
 	{
-		OutPress = bOutContact ? 0.35f : 0.f;
+		OutRub01 = 0.25f;
 		return;
 	}
 	ToPrey.Normalize();
+	const FVector Tangent(-ToPrey.Y, ToPrey.X, 0.f);
 
 	FVector MoveXY = FVector::ZeroVector;
 	if (Pawn && Pawn->GetSlimeMovement())
 	{
 		MoveXY = Pawn->GetSlimeMovement()->GetMoveIntent();
 		MoveXY.Z = 0.f;
-		if (MoveXY.SizeSquared() < 100.f)
+		if (MoveXY.SizeSquared() < 80.f)
 		{
 			MoveXY = Pawn->GetSlimeMovement()->GetPlanarVelocity();
 			MoveXY.Z = 0.f;
 		}
 	}
-
 	if (MoveXY.SizeSquared() < 4.f)
 	{
-		OutPress = 0.f;
+		OutRub01 = 0.f;
 		return;
 	}
 	MoveXY.Normalize();
-	OutPress = FMath::Clamp(FVector::DotProduct(MoveXY, ToPrey), 0.f, 1.f);
+	// Light rub = motion along prey tangent (or any planar move while stuck).
+	OutRub01 = FMath::Clamp(FMath::Abs(FVector::DotProduct(MoveXY, Tangent)) + 0.35f * FMath::Abs(FVector::DotProduct(MoveXY, ToPrey)), 0.f, 1.f);
 }
 
 void USlimeGutContentComponent::Swallow(ADevourable* Prey)
@@ -198,21 +198,23 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 	Entry.RestScale3D = Prey->GetActorScale3D();
 	Entry.AbsorbRemaining = FMath::Max(0.5f, AbsorbDuration);
 	Entry.PhaseBob = FMath::FRandRange(0.f, PI * 2.f);
-	Entry.Engulf01 = 0.f;
+	Entry.Sink01 = 0.f;
 	Entries.Add(Entry);
 
-	// Ensure climb sleeve stays off.
 	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
 	{
 		if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
 		{
 			Soft->ClearEngulfClimbTarget();
 		}
+		if (USlimeEngulfVenomComponent* Venom = SoftSlime->GetEngulfVenom())
+		{
+			Venom->Clear();
+			Venom->SetComponentTickEnabled(false);
+		}
 	}
 
-	SyncVenomPresentation();
-
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Held %s — press-meter + venom wrap in place (no climb sleeve). gut=%d"),
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Held %s — glue sink (world-pinned, no ribbons). gut=%d"),
 		*Prey->GetLabel(), Entries.Num());
 }
 
@@ -225,16 +227,15 @@ void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
 		return;
 	}
 
-	if (USlimeEngulfVenomComponent* Venom = GetVenom())
-	{
-		Venom->BeginFadeOut();
-	}
-
 	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
 	{
 		if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
 		{
 			Soft->ClearEngulfClimbTarget();
+		}
+		if (USlimeEngulfVenomComponent* Venom = SoftSlime->GetEngulfVenom())
+		{
+			Venom->Clear();
 		}
 	}
 
@@ -256,11 +257,11 @@ void USlimeGutContentComponent::EnterContained(FGutEntry& Entry)
 		OnGutContained.ExecuteIfBound(Entry.Mass, Entry.Trait, Prey);
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Contained %s after Engulf01=%.2f sealLocal=(%.1f,%.1f,%.1f)"),
-		*Prey->GetLabel(), Entry.Engulf01, Entry.SealLocalOffset.X, Entry.SealLocalOffset.Y, Entry.SealLocalOffset.Z);
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: Contained %s after Sink01=%.2f sealLocal=(%.1f,%.1f,%.1f)"),
+		*Prey->GetLabel(), Entry.Sink01, Entry.SealLocalOffset.X, Entry.SealLocalOffset.Y, Entry.SealLocalOffset.Z);
 }
 
-void USlimeGutContentComponent::TickHeldEngulf(FGutEntry& Entry, float Dt)
+void USlimeGutContentComponent::TickHeldGlue(FGutEntry& Entry, float Dt)
 {
 	ADevourable* Prey = Entry.Prey.Get();
 	if (!Prey)
@@ -268,52 +269,44 @@ void USlimeGutContentComponent::TickHeldEngulf(FGutEntry& Entry, float Dt)
 		return;
 	}
 
-	// Stay in place — no COM yank.
+	// World-pinned — no COM yank.
 	Prey->SetActorLocation(Entry.HeldWorldLocation);
 	Prey->SetActorHiddenInGame(false);
 
-	float Press = 0.f;
 	bool bContact = false;
-	ComputePressContact(Prey, Press, bContact);
-	if (bVenomDemo)
-	{
-		// Demo: hold contact + steady press so ribbons climb without manual WASD.
-		bContact = true;
-		Press = 1.f;
-	}
+	float Rub01 = 0.f;
+	ComputeGlueContact(Prey, bContact, Rub01);
 
 	if (bContact)
 	{
-		const float Delta = Press * EngulfChargeRate - EngulfIdleDecay;
-		Entry.Engulf01 = FMath::Clamp(Entry.Engulf01 + Delta * Dt, 0.f, 1.f);
+		const float Rate = SinkHoldRate + Rub01 * SinkRubBonus;
+		Entry.Sink01 = FMath::Clamp(Entry.Sink01 + Rate * Dt, 0.f, 1.f);
 	}
 	else
 	{
-		Entry.Engulf01 = FMath::Max(0.f, Entry.Engulf01 - EngulfReleaseDecay * Dt);
+		Entry.Sink01 = FMath::Max(0.f, Entry.Sink01 - SinkReleaseDecay * Dt);
 	}
 
-	SyncVenomPresentation();
-
-	static float EngulfLogAccum = 0.f;
-	EngulfLogAccum += Dt;
-	if (EngulfLogAccum >= 0.35f)
+	static float GlueLogAccum = 0.f;
+	GlueLogAccum += Dt;
+	if (GlueLogAccum >= 0.35f)
 	{
-		EngulfLogAccum = 0.f;
-		UE_LOG(LogTemp, Display, TEXT("SlimeGut engulf: Engulf01=%.2f press=%.2f contact=%d hold=%.2f"),
-			Entry.Engulf01, Press, bContact ? 1 : 0, Entry.EngulfHoldAccum);
+		GlueLogAccum = 0.f;
+		UE_LOG(LogTemp, Display, TEXT("SlimeGut glue: Sink01=%.2f contact=%d rub=%.2f hold=%.2f"),
+			Entry.Sink01, bContact ? 1 : 0, Rub01, Entry.SinkHoldAccum);
 	}
 
-	if (Entry.Engulf01 >= EngulfCompleteThreshold)
+	if (Entry.Sink01 >= SinkCompleteThreshold)
 	{
-		Entry.EngulfHoldAccum += Dt;
-		if (Entry.EngulfHoldAccum >= EngulfHoldSeconds)
+		Entry.SinkHoldAccum += Dt;
+		if (Entry.SinkHoldAccum >= SinkHoldSeconds)
 		{
 			EnterContained(Entry);
 		}
 	}
 	else
 	{
-		Entry.EngulfHoldAccum = FMath::Max(0.f, Entry.EngulfHoldAccum - Dt * 2.f);
+		Entry.SinkHoldAccum = FMath::Max(0.f, Entry.SinkHoldAccum - Dt * 2.f);
 	}
 }
 
@@ -329,10 +322,6 @@ void USlimeGutContentComponent::BeginDissolveAll()
 		E.Phase = EGutPhase::Dissolving;
 		E.bAbsorbNotified = true;
 	}
-	if (USlimeEngulfVenomComponent* Venom = GetVenom())
-	{
-		Venom->Clear();
-	}
 }
 
 void USlimeGutContentComponent::ClearImmediate()
@@ -342,15 +331,15 @@ void USlimeGutContentComponent::ClearImmediate()
 		FinishEntry(E);
 	}
 	Entries.Reset();
-	if (USlimeEngulfVenomComponent* Venom = GetVenom())
-	{
-		Venom->Clear();
-	}
 	if (ASlimePawn* SoftSlime = Cast<ASlimePawn>(GetOwner()))
 	{
 		if (USlimeSoftVolumeComponent* Soft = SoftSlime->GetSoftVolume())
 		{
 			Soft->ClearEngulfClimbTarget();
+		}
+		if (USlimeEngulfVenomComponent* Venom = SoftSlime->GetEngulfVenom())
+		{
+			Venom->Clear();
 		}
 	}
 }
@@ -374,7 +363,7 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 
 	if (Entry.Phase == EGutPhase::Held)
 	{
-		TickHeldEngulf(Entry, Dt);
+		TickHeldGlue(Entry, Dt);
 		return;
 	}
 
@@ -438,162 +427,9 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 	}
 }
 
-void USlimeGutContentComponent::TickVenomDemo(float Dt)
-{
-	if (!bVenomDemo || !GetWorld() || !GetOwner())
-	{
-		return;
-	}
-
-	// Slower charge so wrap stages are readable on camera.
-	EngulfChargeRate = 0.42f;
-
-	VenomDemoAge += Dt;
-
-	// Keep camera locked on Held/Contained prey each tick.
-	if (ADevourable* LookPrey = FindPrimaryHeldPrey())
-	{
-		if (ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
-		{
-			const FVector ToPrey = LookPrey->GetActorLocation() - Pawn->GetActorLocation();
-			const float AimYaw = FMath::RadiansToDegrees(FMath::Atan2(ToPrey.Y, ToPrey.X));
-			Pawn->SetViewYawPitch(AimYaw, -22.f);
-		}
-	}
-	else
-	{
-		for (const FGutEntry& E : Entries)
-		{
-			if (E.Phase == EGutPhase::Contained && E.Prey.IsValid())
-			{
-				if (ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
-				{
-					const FVector PreyW = E.Prey->GetActorLocation();
-					const FVector ToPrey = PreyW - Pawn->GetActorLocation();
-					const float AimYaw = FMath::RadiansToDegrees(FMath::Atan2(ToPrey.Y, ToPrey.X));
-					Pawn->SetViewYawPitch(AimYaw, -20.f);
-				}
-				break;
-			}
-		}
-	}
-
-	// Phase 0: after load, find Prey_Rock / 돌, park for 3/4 view, swallow.
-	if (VenomDemoAge > 1.5f && Entries.Num() == 0)
-	{
-		TArray<AActor*> PreyActors;
-		UGameplayStatics::GetAllActorsOfClass(GetWorld(), ADevourable::StaticClass(), PreyActors);
-		ADevourable* Best = nullptr;
-		float BestDist = TNumericLimits<float>::Max();
-		const FVector Here = GetOwner()->GetActorLocation();
-		for (AActor* A : PreyActors)
-		{
-			ADevourable* D = Cast<ADevourable>(A);
-			if (!D || !D->CanDevour())
-			{
-				continue;
-			}
-			const FString Label = D->GetLabel();
-			const bool bRock = Label.Contains(TEXT("돌")) || Label.Contains(TEXT("Rock"), ESearchCase::IgnoreCase)
-				|| D->GetName().Contains(TEXT("Rock"), ESearchCase::IgnoreCase);
-			const float Dist = FVector::Dist(Here, D->GetActorLocation());
-			if (bRock && Dist < BestDist)
-			{
-				BestDist = Dist;
-				Best = D;
-			}
-		}
-		if (!Best && PreyActors.Num() > 0)
-		{
-			Best = Cast<ADevourable>(PreyActors[0]);
-		}
-		if (Best)
-		{
-			const FVector PreyLoc = Best->GetActorLocation();
-			// Camera sits on slime behind: stand so Prey_Rock is centered in frame (not a pillar).
-			FVector Beside = PreyLoc + FVector(-120.f, 55.f, 0.f);
-			Beside.Z = PreyLoc.Z;
-			GetOwner()->SetActorLocation(Beside);
-			if (ASlimePawn* Soft = Cast<ASlimePawn>(GetOwner()))
-			{
-				if (USlimeSoftVolumeComponent* Vol = Soft->GetSoftVolume())
-				{
-					Vol->TeleportWithActor();
-				}
-			}
-			if (ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
-			{
-				const FVector ToPrey = PreyLoc - Beside;
-				const float AimYaw = FMath::RadiansToDegrees(FMath::Atan2(ToPrey.Y, ToPrey.X));
-				Pawn->SetViewYawPitch(AimYaw, -22.f);
-			}
-			Swallow(Best);
-			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: swallowed %s at prey=(%.0f,%.0f,%.0f)"),
-				*Best->GetLabel(), PreyLoc.X, PreyLoc.Y, PreyLoc.Z);
-		}
-	}
-
-	const float Engulf = GetPrimaryEngulf01();
-	auto Shot = [&](int32 Index, const TCHAR* Tag)
-	{
-		const FString Dir = FPaths::ProjectSavedDir() / TEXT("VenomDemo");
-		IFileManager::Get().MakeDirectory(*Dir, true);
-		const FString Abs = Dir / FString::Printf(TEXT("venom-engulf-%02d.png"), Index);
-		// Suffix off so filename is stable for the harness copy step.
-		FScreenshotRequest::RequestScreenshot(Abs, false, false);
-		UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: SHOT %s Engulf01=%.2f path=%s"), Tag, Engulf, *Abs);
-	};
-
-	if (VenomDemoShot == 0 && Engulf >= 0.28f)
-	{
-		Shot(1, TEXT("wrap28"));
-		VenomDemoShot = 1;
-	}
-	else if (VenomDemoShot == 1 && Engulf >= 0.62f)
-	{
-		Shot(2, TEXT("wrap62"));
-		VenomDemoShot = 2;
-	}
-	else if (VenomDemoShot == 2 && Engulf >= 0.92f)
-	{
-		Shot(3, TEXT("wrap92"));
-		VenomDemoShot = 3;
-	}
-	else if (VenomDemoShot == 3)
-	{
-		bool bContainedShot = false;
-		for (const FGutEntry& E : Entries)
-		{
-			if (E.Phase == EGutPhase::Contained && E.ContainedAge > 0.7f)
-			{
-				bContainedShot = true;
-				break;
-			}
-		}
-		if (bContainedShot)
-		{
-			Shot(4, TEXT("contained"));
-			VenomDemoShot = 4;
-			VenomDemoQuitAccum = 0.f;
-			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: DONE — idle for harness (no RequestExit)"));
-		}
-	}
-	else if (VenomDemoShot == 4)
-	{
-		VenomDemoQuitAccum += Dt;
-		if (VenomDemoQuitAccum > 1.2f)
-		{
-			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: CAPTURE_COMPLETE"));
-			VenomDemoShot = 5;
-		}
-	}
-}
-
 void USlimeGutContentComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	TickVenomDemo(DeltaTime);
 
 	for (int32 I = Entries.Num() - 1; I >= 0; --I)
 	{
@@ -612,18 +448,6 @@ void USlimeGutContentComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 		{
 			FinishEntry(E);
 			Entries.RemoveAtSwap(I);
-		}
-	}
-
-	if (!FindPrimaryHeldPrey())
-	{
-		// Held cleared — venom should already be fading from Contained; if cancelled, clear.
-		if (USlimeEngulfVenomComponent* Venom = GetVenom())
-		{
-			if (Venom->IsActive() && Entries.Num() == 0)
-			{
-				Venom->Clear();
-			}
 		}
 	}
 }
