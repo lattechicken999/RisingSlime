@@ -101,9 +101,11 @@ protected:
 	void OnAttack(const struct FInputActionValue& Value);
 	void OnTrait(const struct FInputActionValue& Value);
 	void OnCycleTrait(const struct FInputActionValue& Value);
+	void OnSpit(const struct FInputActionValue& Value);
 	void OnTraitPanel(const struct FInputActionValue& Value);
 	void OnCursor(const struct FInputActionValue& Value);
 	void OnFocus(const struct FInputActionValue& Value);
+	void TrySpitActive();
 
 	void ApplyLookFromRawPixels(const FVector2D& PixelDelta);
 	void UpdateAim();

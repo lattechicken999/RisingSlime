@@ -2,8 +2,10 @@
 #include "Devourable.h"
 #include "SlimePawn.h"
 #include "SlimeGutContentComponent.h"
+#include "TraitPurgePickup.h"
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
+#include "Engine/World.h"
 
 AExpeditionDirector::AExpeditionDirector()
 {
@@ -14,7 +16,23 @@ AExpeditionDirector::AExpeditionDirector()
 void AExpeditionDirector::BeginPlay()
 {
 	Super::BeginPlay();
-	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab으로 형질을 본다.");
+	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab 형질 · Q 토해내기.");
+
+	// Ensure Hunt has a trait-purge pickup even if the umap was built before this actor existed.
+	UWorld* World = GetWorld();
+	if (World && !UGameplayStatics::GetActorOfClass(World, ATraitPurgePickup::StaticClass()))
+	{
+		const FVector Loc(250.f, -180.f, 40.f); // ~near nest, clear of pad
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		if (ATraitPurgePickup* Pickup = World->SpawnActor<ATraitPurgePickup>(Loc, FRotator::ZeroRotator, Params))
+		{
+#if WITH_EDITOR
+			Pickup->SetActorLabel(TEXT("Pickup_TraitPurge"));
+#endif
+			UE_LOG(LogTemp, Display, TEXT("ExpeditionDirector: spawned Pickup_TraitPurge at runtime"));
+		}
+	}
 }
 
 void AExpeditionDirector::RegisterSlime(ASlimePawn* InSlime)
@@ -265,6 +283,20 @@ void AExpeditionDirector::Spit(ETraitId Trait)
 	{
 		Slime->PlaySpitSplash();
 	}
+}
+
+bool AExpeditionDirector::SpitActive()
+{
+	SyncActiveFromConfirmed();
+	if (Confirmed.Num() == 0 || Active == ETraitId::None)
+	{
+		Status = TEXT("토해낼 확정 형질이 없다.");
+		return false;
+	}
+
+	const ETraitId Trait = Confirmed[0];
+	Spit(Trait);
+	return true;
 }
 
 bool AExpeditionDirector::PurgeConfirmedTrait(ETraitId Trait)

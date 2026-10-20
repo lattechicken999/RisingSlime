@@ -99,6 +99,16 @@ void UTraitPanelWidget::RebuildLayout()
 	ConfirmedBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ConfirmedBox"));
 	AddPad(ConfirmedBox, 10.f);
 
+	SpitButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("SpitButton"));
+	{
+		UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SpitLabel"));
+		Label->SetText(FText::FromString(TEXT("토해내기 (Q) — 활성 1개")));
+		Label->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+		SpitButton->AddChild(Label);
+		SpitButton->OnClicked.AddDynamic(this, &UTraitPanelWidget::OnSpitClicked);
+	}
+	AddPad(SpitButton, 12.f);
+
 	CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseButton"));
 	{
 		UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CloseLabel"));
@@ -107,7 +117,7 @@ void UTraitPanelWidget::RebuildLayout()
 		CloseButton->AddChild(Label);
 		CloseButton->OnClicked.AddDynamic(this, &UTraitPanelWidget::OnCloseClicked);
 	}
-	AddPad(CloseButton, 14.f);
+	AddPad(CloseButton, 8.f);
 }
 
 void UTraitPanelWidget::AddTraitRow(ETraitId Trait, int32 Index)
@@ -149,8 +159,12 @@ void UTraitPanelWidget::Refresh()
 	if (HintLine)
 	{
 		HintLine->SetText(FText::FromString(Director->HasTraitPurgeItem()
-			? TEXT("위가 우선·활성. 드래그로 순서 변경. 삭제는 보유 아이템으로.")
-			: TEXT("위가 우선·활성. 드래그로 순서 변경. (삭제 아이템 없음)")));
+			? TEXT("위=활성. Q/버튼 토해내기. 드래그 순서. 삭제=아이템.")
+			: TEXT("위=활성. Q/버튼 토해내기. 드래그 순서. (삭제 아이템 없음)")));
+	}
+	if (SpitButton)
+	{
+		SpitButton->SetIsEnabled(Director->GetConfirmedTraits().Num() > 0);
 	}
 
 	ClearChildren(ConfirmedBox);
@@ -239,6 +253,15 @@ void UTraitPanelWidget::HandleReorder(ETraitId Dragged, ETraitId DropTarget)
 	if (AExpeditionDirector* Director = FindDirector())
 	{
 		Director->ReorderConfirmed(Dragged, DropTarget);
+		Refresh();
+	}
+}
+
+void UTraitPanelWidget::OnSpitClicked()
+{
+	if (AExpeditionDirector* Director = FindDirector())
+	{
+		Director->SpitActive();
 		Refresh();
 	}
 }

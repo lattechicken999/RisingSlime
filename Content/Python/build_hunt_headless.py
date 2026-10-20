@@ -56,7 +56,7 @@ def clear_placed():
         label = actor.get_actor_label()
         prefixes = (
             "Floor_", "Nest_", "Prey_", "Stone_", "Grass_", "Bloom_",
-            "DirLight", "SkyLight", "Director", "PlayerStart",
+            "DirLight", "SkyLight", "Director", "PlayerStart", "Pickup_",
         )
         if label.startswith(prefixes):
             actor.destroy_actor()
@@ -179,6 +179,8 @@ def build():
             rubber.mesh_component.set_static_mesh(mesh)
 
     spawn_actor("/Script/RaisingSlime.CreatureAgent", "Prey_Bee", (13.5, 1.0, 12.5), 1.0)
+
+    spawn_actor("/Script/RaisingSlime.TraitPurgePickup", "Pickup_TraitPurge", (2.5, 0.35, -1.8), 1.0)
 
     for i, (pos, sc) in enumerate([
         ((9.5, 0.45, -1.5), 0.85),

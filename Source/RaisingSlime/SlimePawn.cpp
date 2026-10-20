@@ -193,6 +193,10 @@ void ASlimePawn::BindEnhancedInput()
 	{
 		EIC->BindAction(PC->GetCycleTraitAction(), ETriggerEvent::Started, this, &ASlimePawn::OnCycleTrait);
 	}
+	if (PC->GetSpitAction())
+	{
+		EIC->BindAction(PC->GetSpitAction(), ETriggerEvent::Started, this, &ASlimePawn::OnSpit);
+	}
 	if (PC->GetTraitPanelAction())
 	{
 		EIC->BindAction(PC->GetTraitPanelAction(), ETriggerEvent::Started, this, &ASlimePawn::OnTraitPanel);
@@ -257,6 +261,10 @@ void ASlimePawn::Tick(float DeltaSeconds)
 		if (PC->WasInputKeyJustPressed(EKeys::SpaceBar))
 		{
 			bJumpQueued = true;
+		}
+		if (PC->WasInputKeyJustPressed(EKeys::Q))
+		{
+			TrySpitActive();
 		}
 	}
 
@@ -402,6 +410,24 @@ void ASlimePawn::OnCycleTrait(const FInputActionValue& /*Value*/)
 	if (AExpeditionDirector* Director = FindDirector())
 	{
 		Director->CycleActive();
+	}
+}
+
+void ASlimePawn::OnSpit(const FInputActionValue& /*Value*/)
+{
+	TrySpitActive();
+}
+
+void ASlimePawn::TrySpitActive()
+{
+	// Field spit anywhere — TraitPanel may stay open (Q / panel button). Full menu only blocks.
+	if (IsMenuBlocking())
+	{
+		return;
+	}
+	if (AExpeditionDirector* Director = FindDirector())
+	{
+		Director->SpitActive();
 	}
 }
 

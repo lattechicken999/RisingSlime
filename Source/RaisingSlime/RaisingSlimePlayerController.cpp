@@ -146,6 +146,7 @@ bool ARaisingSlimePlayerController::TryLoadAssetInput()
 	UInputAction* LoadedTrait = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Trait.IA_Trait"));
 	UInputAction* LoadedCycle = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_CycleTrait.IA_CycleTrait"));
 	UInputAction* LoadedTraitPanel = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_TraitPanel.IA_TraitPanel"));
+	UInputAction* LoadedSpit = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Spit.IA_Spit"));
 	UInputAction* LoadedCursor = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Cursor.IA_Cursor"));
 	UInputAction* LoadedFocus = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Focus.IA_Focus"));
 
@@ -177,7 +178,21 @@ bool ARaisingSlimePlayerController::TryLoadAssetInput()
 	}
 	MappingContext->MapKey(TraitPanelAction, EKeys::Tab);
 
-	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded /Game/Input/IMC_Slime + IA_* (TraitPanel=Tab)"));
+	// Spit on Q; move CycleTrait off Q → R so they don't fight (legacy IMC had Cycle on Q).
+	if (LoadedSpit)
+	{
+		SpitAction = LoadedSpit;
+	}
+	else
+	{
+		SpitAction = NewObject<UInputAction>(this, TEXT("IA_Spit"));
+		SpitAction->ValueType = EInputActionValueType::Boolean;
+	}
+	MappingContext->UnmapKey(CycleTraitAction, EKeys::Q);
+	MappingContext->MapKey(CycleTraitAction, EKeys::R);
+	MappingContext->MapKey(SpitAction, EKeys::Q);
+
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded IMC_Slime (TraitPanel=Tab Spit=Q Cycle=R)"));
 	return true;
 }
 
@@ -210,6 +225,7 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 	TraitAction = MakeAction(TEXT("IA_Trait"), EInputActionValueType::Boolean);
 	CycleTraitAction = MakeAction(TEXT("IA_CycleTrait"), EInputActionValueType::Boolean);
 	TraitPanelAction = MakeAction(TEXT("IA_TraitPanel"), EInputActionValueType::Boolean);
+	SpitAction = MakeAction(TEXT("IA_Spit"), EInputActionValueType::Boolean);
 	CursorAction = MakeAction(TEXT("IA_Cursor"), EInputActionValueType::Boolean);
 	FocusAction = MakeAction(TEXT("IA_Focus"), EInputActionValueType::Boolean);
 
@@ -238,10 +254,11 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 	MappingContext->MapKey(JumpAction, EKeys::SpaceBar);
 	MappingContext->MapKey(AttackAction, EKeys::LeftMouseButton);
 	MappingContext->MapKey(TraitAction, EKeys::RightMouseButton);
-	MappingContext->MapKey(CycleTraitAction, EKeys::Q);
+	MappingContext->MapKey(CycleTraitAction, EKeys::R);
+	MappingContext->MapKey(SpitAction, EKeys::Q);
 	MappingContext->MapKey(TraitPanelAction, EKeys::Tab);
 	MappingContext->MapKey(CursorAction, EKeys::Escape);
 	MappingContext->MapKey(FocusAction, EKeys::LeftMouseButton);
 
-	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: runtime IMC/actions built (asset fallback)"));
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: runtime IMC/actions built (Spit=Q Cycle=R)"));
 }

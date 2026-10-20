@@ -37,7 +37,7 @@ def clear_placed():
     subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     for actor in subsystem.get_all_level_actors():
         label = actor.get_actor_label()
-        if label.startswith(("Floor_", "Nest_", "Prey_", "Stone_", "Grass_", "Bloom_", "DirLight", "SkyLight", "Director", "PlayerStart")):
+        if label.startswith(("Floor_", "Nest_", "Prey_", "Stone_", "Grass_", "Bloom_", "DirLight", "SkyLight", "Director", "PlayerStart", "Pickup_")):
             actor.destroy_actor()
 
 
@@ -115,6 +115,9 @@ def build():
     bee = spawn_actor("/Script/RaisingSlime.CreatureAgent", "Prey_Bee", (13.5, 1.0, 12.5), 1.0)
     if bee:
         bee.set_editor_property("display_name", "벌")
+
+    # Trait purge world pickup (Tab delete unlock); Director also spawns at runtime if missing.
+    spawn_actor("/Script/RaisingSlime.TraitPurgePickup", "Pickup_TraitPurge", (2.5, 0.35, -1.8), 1.0)
 
     # Decor stones (collision on)
     for i, (pos, sc) in enumerate([

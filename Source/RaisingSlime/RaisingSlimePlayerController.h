@@ -37,6 +37,7 @@ public:
 	UInputAction* GetTraitAction() const { return TraitAction; }
 	UInputAction* GetCycleTraitAction() const { return CycleTraitAction; }
 	UInputAction* GetTraitPanelAction() const { return TraitPanelAction; }
+	UInputAction* GetSpitAction() const { return SpitAction; }
 	UInputAction* GetCursorAction() const { return CursorAction; }
 	UInputAction* GetFocusAction() const { return FocusAction; }
 
@@ -68,6 +69,8 @@ protected:
 	TObjectPtr<UInputAction> CycleTraitAction;
 	UPROPERTY()
 	TObjectPtr<UInputAction> TraitPanelAction;
+	UPROPERTY()
+	TObjectPtr<UInputAction> SpitAction;
 	UPROPERTY()
 	TObjectPtr<UInputAction> CursorAction;
 	UPROPERTY()

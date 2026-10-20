@@ -57,6 +57,11 @@ public:
 	void CycleActive();
 	bool TryConfirm(ETraitId Trait);
 	void Spit(ETraitId Trait);
+
+	/** Field spit: remove Active Confirmed[0] only. No world item spawn. Nest not required. */
+	UFUNCTION(BlueprintCallable, Category = "Expedition")
+	bool SpitActive();
+
 	bool PurgeConfirmedTrait(ETraitId Trait);
 	bool ReorderConfirmed(ETraitId Dragged, ETraitId DropTarget);
 	void SyncActiveFromConfirmed();
