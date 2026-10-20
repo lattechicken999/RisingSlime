@@ -42,10 +42,10 @@ public:
 	float FadeOutSeconds = 0.35f;
 
 	UPROPERTY(EditAnywhere, Category = "Engulf|Venom")
-	float RibbonRadiusCm = 9.f;
+	float RibbonRadiusCm = 12.f;
 
 	UPROPERTY(EditAnywhere, Category = "Engulf|Venom")
-	float CoatExtraCm = 7.f;
+	float CoatExtraCm = 10.f;
 
 protected:
 	struct FRibbonMesh

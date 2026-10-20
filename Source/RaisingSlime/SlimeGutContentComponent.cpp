@@ -9,8 +9,11 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/CommandLine.h"
+#include "Misc/Paths.h"
 #include "Engine/Engine.h"
 #include "Kismet/GameplayStatics.h"
+#include "UnrealClient.h"
+#include "HAL/FileManager.h"
 
 USlimeGutContentComponent::USlimeGutContentComponent()
 {
@@ -442,10 +445,41 @@ void USlimeGutContentComponent::TickVenomDemo(float Dt)
 		return;
 	}
 
+	// Slower charge so wrap stages are readable on camera.
+	EngulfChargeRate = 0.42f;
+
 	VenomDemoAge += Dt;
 
-	// Phase 0: after load, find Prey_Rock / 돌, park beside it, swallow.
-	if (VenomDemoAge > 1.2f && Entries.Num() == 0)
+	// Keep camera locked on Held/Contained prey each tick.
+	if (ADevourable* LookPrey = FindPrimaryHeldPrey())
+	{
+		if (ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
+		{
+			const FVector ToPrey = LookPrey->GetActorLocation() - Pawn->GetActorLocation();
+			const float AimYaw = FMath::RadiansToDegrees(FMath::Atan2(ToPrey.Y, ToPrey.X));
+			Pawn->SetViewYawPitch(AimYaw, -22.f);
+		}
+	}
+	else
+	{
+		for (const FGutEntry& E : Entries)
+		{
+			if (E.Phase == EGutPhase::Contained && E.Prey.IsValid())
+			{
+				if (ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
+				{
+					const FVector PreyW = E.Prey->GetActorLocation();
+					const FVector ToPrey = PreyW - Pawn->GetActorLocation();
+					const float AimYaw = FMath::RadiansToDegrees(FMath::Atan2(ToPrey.Y, ToPrey.X));
+					Pawn->SetViewYawPitch(AimYaw, -20.f);
+				}
+				break;
+			}
+		}
+	}
+
+	// Phase 0: after load, find Prey_Rock / 돌, park for 3/4 view, swallow.
+	if (VenomDemoAge > 1.5f && Entries.Num() == 0)
 	{
 		TArray<AActor*> PreyActors;
 		UGameplayStatics::GetAllActorsOfClass(GetWorld(), ADevourable::StaticClass(), PreyActors);
@@ -475,39 +509,54 @@ void USlimeGutContentComponent::TickVenomDemo(float Dt)
 		}
 		if (Best)
 		{
-			FVector PreyLoc = Best->GetActorLocation();
-			FVector Beside = PreyLoc + FVector(55.f, 0.f, 0.f);
-			Beside.Z = GetOwner()->GetActorLocation().Z;
+			const FVector PreyLoc = Best->GetActorLocation();
+			// Camera sits on slime behind: stand so Prey_Rock is centered in frame (not a pillar).
+			FVector Beside = PreyLoc + FVector(-120.f, 55.f, 0.f);
+			Beside.Z = PreyLoc.Z;
 			GetOwner()->SetActorLocation(Beside);
+			if (ASlimePawn* Soft = Cast<ASlimePawn>(GetOwner()))
+			{
+				if (USlimeSoftVolumeComponent* Vol = Soft->GetSoftVolume())
+				{
+					Vol->TeleportWithActor();
+				}
+			}
+			if (ASlimePawn* Pawn = Cast<ASlimePawn>(GetOwner()))
+			{
+				const FVector ToPrey = PreyLoc - Beside;
+				const float AimYaw = FMath::RadiansToDegrees(FMath::Atan2(ToPrey.Y, ToPrey.X));
+				Pawn->SetViewYawPitch(AimYaw, -22.f);
+			}
 			Swallow(Best);
-			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: swallowed %s for wrap capture"), *Best->GetLabel());
+			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: swallowed %s at prey=(%.0f,%.0f,%.0f)"),
+				*Best->GetLabel(), PreyLoc.X, PreyLoc.Y, PreyLoc.Z);
 		}
 	}
 
-	// HighResShot at wrap stages (writes Saved/Screenshots).
 	const float Engulf = GetPrimaryEngulf01();
-	auto Shot = [&](const TCHAR* Tag)
+	auto Shot = [&](int32 Index, const TCHAR* Tag)
 	{
-		if (GEngine)
-		{
-			GEngine->Exec(GetWorld(), TEXT("HighResShot 1920x1080"));
-			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: HighResShot %s Engulf01=%.2f"), Tag, Engulf);
-		}
+		const FString Dir = FPaths::ProjectSavedDir() / TEXT("VenomDemo");
+		IFileManager::Get().MakeDirectory(*Dir, true);
+		const FString Abs = Dir / FString::Printf(TEXT("venom-engulf-%02d.png"), Index);
+		// Suffix off so filename is stable for the harness copy step.
+		FScreenshotRequest::RequestScreenshot(Abs, false, false);
+		UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: SHOT %s Engulf01=%.2f path=%s"), Tag, Engulf, *Abs);
 	};
 
-	if (VenomDemoShot == 0 && Engulf >= 0.25f)
+	if (VenomDemoShot == 0 && Engulf >= 0.28f)
 	{
-		Shot(TEXT("wrap25"));
+		Shot(1, TEXT("wrap28"));
 		VenomDemoShot = 1;
 	}
-	else if (VenomDemoShot == 1 && Engulf >= 0.55f)
+	else if (VenomDemoShot == 1 && Engulf >= 0.62f)
 	{
-		Shot(TEXT("wrap55"));
+		Shot(2, TEXT("wrap62"));
 		VenomDemoShot = 2;
 	}
-	else if (VenomDemoShot == 2 && Engulf >= 0.9f)
+	else if (VenomDemoShot == 2 && Engulf >= 0.92f)
 	{
-		Shot(TEXT("wrap90"));
+		Shot(3, TEXT("wrap92"));
 		VenomDemoShot = 3;
 	}
 	else if (VenomDemoShot == 3)
@@ -515,7 +564,7 @@ void USlimeGutContentComponent::TickVenomDemo(float Dt)
 		bool bContainedShot = false;
 		for (const FGutEntry& E : Entries)
 		{
-			if (E.Phase == EGutPhase::Contained && E.ContainedAge > 0.25f)
+			if (E.Phase == EGutPhase::Contained && E.ContainedAge > 0.7f)
 			{
 				bContainedShot = true;
 				break;
@@ -523,20 +572,18 @@ void USlimeGutContentComponent::TickVenomDemo(float Dt)
 		}
 		if (bContainedShot)
 		{
-			Shot(TEXT("contained"));
+			Shot(4, TEXT("contained"));
 			VenomDemoShot = 4;
 			VenomDemoQuitAccum = 0.f;
-			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: DONE — quit in 1.5s"));
+			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: DONE — idle for harness (no RequestExit)"));
 		}
 	}
 	else if (VenomDemoShot == 4)
 	{
-		// Do NOT call quit from gameplay — that looked like a crash during predation.
-		// External harness kills the process after shots land in Saved/Screenshots.
 		VenomDemoQuitAccum += Dt;
-		if (VenomDemoQuitAccum > 0.5f && VenomDemoShot == 4)
+		if (VenomDemoQuitAccum > 1.2f)
 		{
-			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: capture complete — idle (no RequestExit)"));
+			UE_LOG(LogTemp, Display, TEXT("VenomEngulfDemo: CAPTURE_COMPLETE"));
 			VenomDemoShot = 5;
 		}
 	}

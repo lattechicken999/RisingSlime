@@ -62,6 +62,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Slime")
 	float GetViewPitch() const { return Pitch; }
 
+	/** Demo / tooling: aim body yaw + camera pitch (degrees). */
+	void SetViewYawPitch(float InYaw, float InPitch);
+
 	AActor* GetEngulfTarget() const;
 	AActor* GetAimedPrey() const;
 

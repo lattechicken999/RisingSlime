@@ -579,6 +579,17 @@ void ASlimePawn::NotifyAte()
 	// No Fluids burst on devour — prey attach + float + grow is the read.
 }
 
+void ASlimePawn::SetViewYawPitch(float InYaw, float InPitch)
+{
+	Yaw = InYaw;
+	Pitch = FMath::Clamp(InPitch, RaisingSlimeUnits::PitchMin, RaisingSlimeUnits::PitchMax);
+	SetActorRotation(FRotator(0.f, Yaw, 0.f));
+	if (MainCamera)
+	{
+		MainCamera->SetRelativeRotation(FRotator(Pitch, 0.f, 0.f));
+	}
+}
+
 void ASlimePawn::PlayDevourSplash(const FVector& AtLocation)
 {
 	// Intentionally unused for gameplay devour (kept for tooling / spit-adjacent calls).
