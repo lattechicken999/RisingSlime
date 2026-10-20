@@ -38,7 +38,8 @@ void AExpeditionDirector::BeginPlay()
 		}
 		if (!UGameplayStatics::GetActorOfClass(World, AFootOozePickup::StaticClass()))
 		{
-			const FVector Loc(-220.f, 200.f, 40.f);
+			// Far from nest so spawn-walk does not accidentally enable floor water (SW_Drop ooze).
+			const FVector Loc(-520.f, 380.f, 40.f);
 			if (AFootOozePickup* Pickup = World->SpawnActor<AFootOozePickup>(Loc, FRotator::ZeroRotator, Params))
 			{
 #if WITH_EDITOR

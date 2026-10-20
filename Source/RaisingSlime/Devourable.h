@@ -40,7 +40,7 @@ public:
 	/** Hide + detach after absorb dissolve or death; then start respawn timer. */
 	void FinishGutAndRespawn();
 
-	/** Spit from gut: place in world and optionally launch (no respawn timer). Re-devourable. */
+	/** Spit from gut: place in world and optionally launch (no respawn timer). Re-devourable after grace. */
 	void ReleaseFromGutToWorld(const FVector& WorldLocation, const FVector& LaunchVelocity = FVector::ZeroVector);
 
 	void BeginRespawnCooldown();
@@ -48,6 +48,10 @@ public:
 
 	/** Collect center + AABB corner samples for engulf coverage. */
 	void CollectEngulfSamplePoints(TArray<FVector>& OutPoints) const;
+
+	/** After spit, block CanDevour for this many seconds (stops instant re-eat). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey|Spit", meta = (ClampMin = "0", ClampMax = "5"))
+	float SpitReDevourGraceSeconds = 1.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey")
 	FString DisplayName;
@@ -79,6 +83,8 @@ protected:
 	bool bConsumed = false;
 	bool bInsideGut = false;
 	bool bHomeStored = false;
+	/** World time until which CanDevour is false after spit. */
+	float SpitGraceUntilTime = -1.f;
 	FTransform HomeTransform;
 	FVector HomeScale3D = FVector::OneVector;
 	FVector HeldWorldLocation = FVector::ZeroVector;

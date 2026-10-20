@@ -80,7 +80,8 @@ void AFootOozePickup::Collect(ASlimePawn* SoftSlime)
 	}
 
 	SoftSlime->SetFootOozeFromItem(true);
-	UE_LOG(LogTemp, Display, TEXT("FootOozePickup: collected — tiny contact ooze enabled while moving"));
+	UE_LOG(LogTemp, Display,
+		TEXT("FootOozePickup: collected — NS_FootOoze_Fluids while grounded+moving (NOT Shift; item gate only)"));
 	SetAvailable(false);
 
 	if (UWorld* World = GetWorld())

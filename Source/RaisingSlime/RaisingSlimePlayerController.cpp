@@ -200,9 +200,39 @@ bool ARaisingSlimePlayerController::TryLoadAssetInput()
 	MappingContext->UnmapKey(CycleTraitAction, EKeys::Q);
 	MappingContext->MapKey(CycleTraitAction, EKeys::R);
 	MappingContext->MapKey(SpitAction, EKeys::Q);
+	StripShiftSprintMappings();
 
-	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded IMC_Slime (TraitPanel=Tab Spit=Q Cycle=R)"));
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded IMC_Slime (TraitPanel=Tab Spit=Q Cycle=R; Shift unbound)"));
 	return true;
+}
+
+void ARaisingSlimePlayerController::StripShiftSprintMappings()
+{
+	if (!MappingContext)
+	{
+		return;
+	}
+
+	// RisingSlime has no IA_Sprint / crouch. Foot ooze is item-gated (bFootOozeFromItem),
+	// not Shift. Strip any leftover Shift bindings so Shift cannot trigger Fluids/SW_Drop.
+	static const FKey ShiftKeys[] = { EKeys::LeftShift, EKeys::RightShift };
+	TArray<FEnhancedActionKeyMapping> Snapshot = MappingContext->GetMappings();
+	int32 Removed = 0;
+	for (const FEnhancedActionKeyMapping& Mapping : Snapshot)
+	{
+		for (const FKey& ShiftKey : ShiftKeys)
+		{
+			if (Mapping.Key == ShiftKey && Mapping.Action)
+			{
+				MappingContext->UnmapKey(Mapping.Action, ShiftKey);
+				++Removed;
+			}
+		}
+	}
+	if (Removed > 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("RaisingSlimePC: removed %d Shift mapping(s) (no sprint/ooze on Shift)"), Removed);
+	}
 }
 
 void ARaisingSlimePlayerController::BuildRuntimeInput()
@@ -268,6 +298,7 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 	MappingContext->MapKey(TraitPanelAction, EKeys::Tab);
 	MappingContext->MapKey(CursorAction, EKeys::Escape);
 	MappingContext->MapKey(FocusAction, EKeys::LeftMouseButton);
+	StripShiftSprintMappings();
 
-	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: runtime IMC/actions built (Spit=Q Cycle=R)"));
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: runtime IMC/actions built (Spit=Q Cycle=R; Shift unbound)"));
 }

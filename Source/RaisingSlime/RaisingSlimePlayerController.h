@@ -52,6 +52,8 @@ public:
 protected:
 	void BuildRuntimeInput();
 	bool TryLoadAssetInput();
+	/** No sprint/crouch in this game — strip Shift keys if any IMC leftover maps them. */
+	void StripShiftSprintMappings();
 	void ApplyMappingContext();
 	void ApplyCursorState();
 	void NotifyPossessedPawnToBindInput();

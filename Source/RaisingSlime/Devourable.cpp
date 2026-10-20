@@ -47,6 +47,14 @@ bool ADevourable::CanDevour() const
 		return false;
 	}
 
+	if (const UWorld* World = GetWorld())
+	{
+		if (World->GetTimeSeconds() < SpitGraceUntilTime)
+		{
+			return false;
+		}
+	}
+
 	if (Kind != EPreyKind::Creature)
 	{
 		return true;
@@ -166,6 +174,12 @@ void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation, const FVec
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(RespawnTimer);
+		// Bugfix: spit was immediately re-devourable (CanDevour true + overlap). Grace ~1.5s.
+		SpitGraceUntilTime = World->GetTimeSeconds() + FMath::Max(0.f, SpitReDevourGraceSeconds);
+	}
+	else
+	{
+		SpitGraceUntilTime = -1.f;
 	}
 
 	bInsideGut = false;
@@ -200,6 +214,9 @@ void ADevourable::ReleaseFromGutToWorld(const FVector& WorldLocation, const FVec
 			MeshComponent->SetSimulatePhysics(false);
 		}
 	}
+
+	UE_LOG(LogTemp, Display, TEXT("Devourable: spit grace %.2fs on %s"),
+		SpitReDevourGraceSeconds, *GetLabel());
 }
 
 void ADevourable::BeginRespawnCooldown()
@@ -244,6 +261,7 @@ void ADevourable::RestoreScenePlacement()
 
 	bConsumed = false;
 	bInsideGut = false;
+	SpitGraceUntilTime = -1.f;
 	SetActorTransform(HomeTransform);
 	SetActorScale3D(HomeScale3D);
 	SetActorHiddenInGame(false);

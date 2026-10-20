@@ -372,6 +372,7 @@ void ASlimePawn::Tick(float DeltaSeconds)
 	}
 
 	// Foot ooze: item/trait opt-in only (bFootOozeFromItem). Default OFF — no WASD trail.
+	// Shift is NOT bound to sprint/ooze; NS_FootOoze_Fluids (SW_Drop) only runs after FootOozePickup.
 	if (bFootOozeFromItem && Movement)
 	{
 		const float PlanarSpeed = Movement->GetPlanarVelocity().Size();
