@@ -172,7 +172,7 @@ void SlimeVfx::TickContactOoze(
 	const float Speed01 = FMath::Clamp((PlanarSpeedCm - MinSpeedCm) / 420.f, 0.f, 1.f);
 	InOutCooldown = FMath::Lerp(0.38f, 0.22f, Speed01);
 
-	// Small scale — must not read as spit/death splash or devour pop.
+	// Tiny contact footprint only (slightly > slime contact) — not water sheets / splash.
 	const float Scale = FMath::Clamp(0.12f + BodySize * 0.08f + Speed01 * 0.06f, 0.10f, 0.28f);
 	const FVector SpawnAt = FeetLocation + FVector(0.f, 0.f, 2.f);
 

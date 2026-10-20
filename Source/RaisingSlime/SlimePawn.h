@@ -79,6 +79,16 @@ public:
 	void PlaySpitSplash();
 	void PlayDeathSplash();
 
+	/**
+	 * Opt-in foot/contact ooze (item / trait effect later). Default OFF —
+	 * normal WASD must not spawn NS_FootOoze_Fluids.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Slime|Vfx")
+	void SetFootOozeFromItem(bool bEnabled) { bFootOozeFromItem = bEnabled; }
+
+	UFUNCTION(BlueprintCallable, Category = "Slime|Vfx")
+	bool IsFootOozeFromItem() const { return bFootOozeFromItem; }
+
 	float GetBodySize() const;
 
 	/** Bind Enhanced Input actions from the player controller. Safe to call multiple times. */
@@ -152,6 +162,8 @@ protected:
 	float HardenCooldown = 0.f;
 	/** Rate-limit for viscous foot/contact ooze Niagara (SlimeVfx). */
 	float ContactOozeCooldown = 0.f;
+	/** Item/trait-only gate. Default false — no ooze on normal move. */
+	bool bFootOozeFromItem = false;
 	bool bJumpQueued = false;
 	bool bEnhancedInputBound = false;
 	bool bLoggedMoveInput = false;

@@ -23,6 +23,8 @@ namespace SlimeVfx
 
 	/**
 	 * Subtle viscous foot/contact ooze while grounded + moving.
+	 * Caller must gate (ASlimePawn::bFootOozeFromItem) — default movement must NOT call this.
+	 * Spawn footprint stays slightly larger than contact only (not big water sheets).
 	 * NOT splashy, NOT devour-pop. Rate-limited Fluids drop (or silent if asset missing).
 	 */
 	void TickContactOoze(

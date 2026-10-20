@@ -330,8 +330,8 @@ void ASlimePawn::Tick(float DeltaSeconds)
 		++Steps;
 	}
 
-	// Subtle viscous contact ooze while grounded + crawling (not splash / not devour-pop).
-	if (Movement)
+	// Foot ooze: item/trait opt-in only (bFootOozeFromItem). Default OFF — no WASD trail.
+	if (bFootOozeFromItem && Movement)
 	{
 		const float PlanarSpeed = Movement->GetPlanarVelocity().Size();
 		SlimeVfx::TickContactOoze(
