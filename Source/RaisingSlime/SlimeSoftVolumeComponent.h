@@ -9,7 +9,8 @@ class AActor;
 
 /**
  * Soft-volume collision: overlapping spheres that resolve WorldStatic individually.
- * Engulf climb sleeve is retired (alt B′: press-meter + venom ribbons on gut).
+ * Obstacle creep climb: particles viscous-creep onto ledges under WASD press (no hop).
+ * Prey engulf climb sleeve is retired (surface-drift gut owns devour).
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeSoftVolumeComponent : public UActorComponent
@@ -93,7 +94,19 @@ public:
 	UPROPERTY(EditAnywhere, Category = "SoftVolume")
 	float GroundNormalZ = 0.45f;
 
-	/** How fast climb front rises while pressing into prey (1/s toward full height). */
+	/** Max lip height particles may viscous-creep onto (fraction of body radius). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|CreepClimb", meta = (ClampMin = "0.2", ClampMax = "1.4"))
+	float CreepClimbMaxHeightFrac = 0.95f;
+
+	/** Overdamped climb onto ledge tops while pressing (1/s). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|CreepClimb", meta = (ClampMin = "0.5", ClampMax = "12"))
+	float CreepClimbRate = 5.5f;
+
+	/** How strongly ledge-supported particles keep XY on the obstacle (vs formation). */
+	UPROPERTY(EditAnywhere, Category = "SoftVolume|CreepClimb", meta = (ClampMin = "0", ClampMax = "1"))
+	float CreepClimbStickXY = 0.72f;
+
+	/** How fast climb front rises while pressing into prey (retired). */
 	UPROPERTY(EditAnywhere, Category = "SoftVolume|Engulf", meta = (ClampMin = "0.05", ClampMax = "2.0"))
 	float EngulfClimbAdvanceRate = 0.55f;
 
@@ -116,6 +129,8 @@ protected:
 		FVector SupportCenter = FVector::ZeroVector;
 		bool bHasSupport = false;
 		bool bClimbWrapping = false;
+		/** Particle is viscous-creeping / resting on an elevated obstacle lip. */
+		bool bObstacleCreeping = false;
 	};
 
 	struct FEngulfClimb
@@ -133,11 +148,13 @@ protected:
 	FVector BodyCenterFromActor(const AActor* Actor) const;
 	bool SweepParticle(AActor* Ignore, const FVector& Start, const FVector& End, float Radius, FHitResult& OutHit) const;
 	void ProbeSupports(AActor* Ignore, bool& bOutGrounded);
+	void ApplyObstacleCreepClimb(AActor* Ignore, const FVector& DesiredDelta, float Dt, bool& bOutGrounded);
 	void ApplyViscosity(float Dt, const FQuat& YawQ, const FVector& BodyCenter);
 	void SettleToSupports(float Dt);
 	void ApplyEngulfClimb(ASlimePawn* Pawn, float Dt, const FQuat& YawQ);
 	void SyncActorFromParticles(ASlimePawn* Pawn);
 	void RefreshClimbBoundsFromPrey();
+	float EstimateFloorSupportZ() const;
 
 	TArray<FParticle> Particles;
 	FEngulfClimb Climb;

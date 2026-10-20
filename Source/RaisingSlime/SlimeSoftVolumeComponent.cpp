@@ -63,7 +63,9 @@ void USlimeSoftVolumeComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 	for (int32 I = 0; I < Particles.Num(); ++I)
 	{
 		const FParticle& P = Particles[I];
-		const FColor Color = P.bHasSupport ? FColor(40, 220, 120) : FColor(80, 160, 255);
+		const FColor Color = P.bObstacleCreeping
+			? FColor(255, 140, 40)
+			: (P.bHasSupport ? FColor(40, 220, 120) : FColor(80, 160, 255));
 		DrawDebugSphere(GetWorld(), P.WorldPos, P.Radius, 10, Color, false, -1.f, 0, 1.2f);
 		if (P.bHasSupport)
 		{
@@ -371,11 +373,205 @@ void USlimeSoftVolumeComponent::ProbeSupports(AActor* Ignore, bool& bOutGrounded
 	}
 }
 
+float USlimeSoftVolumeComponent::EstimateFloorSupportZ() const
+{
+	float MinSupportZ = TNumericLimits<float>::Max();
+	int32 SupportCount = 0;
+	for (const FParticle& P : Particles)
+	{
+		if (!P.bHasSupport)
+		{
+			continue;
+		}
+		MinSupportZ = FMath::Min(MinSupportZ, P.SupportCenter.Z);
+		++SupportCount;
+	}
+	if (SupportCount == 0)
+	{
+		float MinPosZ = TNumericLimits<float>::Max();
+		for (const FParticle& P : Particles)
+		{
+			MinPosZ = FMath::Min(MinPosZ, P.WorldPos.Z - P.Radius);
+		}
+		return MinPosZ == TNumericLimits<float>::Max() ? 0.f : MinPosZ;
+	}
+
+	// Floor cluster = supports near the lowest lip (not mid-obstacle tops).
+	float Sum = 0.f;
+	int32 N = 0;
+	const float Band = FMath::Max(8.f, BodyRadiusCm * 0.12f);
+	for (const FParticle& P : Particles)
+	{
+		if (!P.bHasSupport)
+		{
+			continue;
+		}
+		if (P.SupportCenter.Z <= MinSupportZ + Band)
+		{
+			Sum += P.SupportCenter.Z;
+			++N;
+		}
+	}
+	return N > 0 ? (Sum / N) : MinSupportZ;
+}
+
+void USlimeSoftVolumeComponent::ApplyObstacleCreepClimb(AActor* Ignore, const FVector& DesiredDelta, float Dt, bool& bOutGrounded)
+{
+	UWorld* World = GetWorld();
+	if (!World || Particles.Num() == 0)
+	{
+		return;
+	}
+
+	const FVector Press(DesiredDelta.X, DesiredDelta.Y, 0.f);
+	const float PressSpeed = Press.Size();
+	const bool bPressing = PressSpeed > 0.5f;
+	const FVector PressDir = bPressing ? (Press / PressSpeed) : FVector::ZeroVector;
+	const float FloorZ = EstimateFloorSupportZ();
+	const float MaxLip = BodyRadiusCm * FMath::Clamp(CreepClimbMaxHeightFrac, 0.2f, 1.4f);
+	const float ClimbAlpha = 1.f - FMath::Exp(-FMath::Max(0.1f, CreepClimbRate) * Dt);
+	const float PressWeight = bPressing
+		? FMath::Clamp(PressSpeed / FMath::Max(1.f, BodyRadiusCm * 0.35f), 0.35f, 1.f)
+		: 0.f;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SlimeCreepClimb), false, Ignore);
+
+	for (FParticle& P : Particles)
+	{
+		P.bObstacleCreeping = false;
+		if (P.bClimbWrapping)
+		{
+			continue;
+		}
+
+		// Already on an elevated lip — keep partial-settle drape; stick handled in viscosity.
+		if (P.bHasSupport && (P.SupportCenter.Z - FloorZ) > 5.f)
+		{
+			const float LipH = P.SupportCenter.Z - FloorZ;
+			if (LipH <= MaxLip + P.Radius * 0.55f)
+			{
+				P.bObstacleCreeping = true;
+				bOutGrounded = true;
+			}
+			continue;
+		}
+
+		if (!bPressing)
+		{
+			continue;
+		}
+
+		const float ProbeAhead = P.Radius * 0.85f + 6.f;
+		auto TryCommitLedge = [&](const FVector& Support) -> bool
+		{
+			const float LipH = Support.Z - FloorZ;
+			if (LipH < 3.f || LipH > MaxLip + 2.f)
+			{
+				return false;
+			}
+			const float A = ClimbAlpha * PressWeight;
+			P.SupportCenter = Support;
+			P.bHasSupport = true;
+			P.bObstacleCreeping = true;
+			P.WorldPos.Z = FMath::Lerp(P.WorldPos.Z, Support.Z, A);
+			P.WorldPos.X = FMath::Lerp(P.WorldPos.X, Support.X, A * 0.5f);
+			P.WorldPos.Y = FMath::Lerp(P.WorldPos.Y, Support.Y, A * 0.5f);
+			if (P.Velocity.Z < 0.f)
+			{
+				P.Velocity.Z *= (1.f - A);
+			}
+			P.Velocity.Z = FMath::Max(P.Velocity.Z, 0.f);
+			P.Velocity *= (1.f - A * 0.35f);
+			bOutGrounded = true;
+			return true;
+		};
+
+		// Overhanging a lip ahead: forward-down probe without needing a wall hit.
+		{
+			const FVector TopStart = P.WorldPos + PressDir * ProbeAhead + FVector(0.f, 0.f, MaxLip);
+			const FVector TopEnd = P.WorldPos + PressDir * ProbeAhead - FVector(0.f, 0.f, P.Radius + SupportProbeExtraCm);
+			FHitResult TopHit;
+			if (World->SweepSingleByChannel(
+					TopHit, TopStart, TopEnd, FQuat::Identity, ECC_WorldStatic,
+					FCollisionShape::MakeSphere(P.Radius * 0.85f), Params)
+				&& TopHit.ImpactNormal.Z >= GroundNormalZ)
+			{
+				const FVector Support = TopHit.ImpactPoint + TopHit.ImpactNormal * P.Radius;
+				if (Support.Z > P.WorldPos.Z + 0.75f && TryCommitLedge(Support))
+				{
+					continue;
+				}
+			}
+		}
+
+		FHitResult WallHit;
+		const FVector WallEnd = P.WorldPos + PressDir * (P.Radius + 14.f);
+		if (!World->SweepSingleByChannel(
+				WallHit, P.WorldPos, WallEnd, FQuat::Identity, ECC_WorldStatic,
+				FCollisionShape::MakeSphere(P.Radius * 0.9f), Params))
+		{
+			continue;
+		}
+
+		const FVector WallN = WallHit.bStartPenetrating ? WallHit.Normal : WallHit.ImpactNormal;
+		if (WallN.Z > 0.55f || WallN.Z < -0.35f)
+		{
+			continue;
+		}
+		if (FVector::DotProduct(PressDir, WallN) > -0.05f)
+		{
+			continue;
+		}
+
+		// Lowest viable lip first so the climb front drapes, then follows.
+		const FVector OntoTop = WallHit.ImpactPoint - WallN * (P.Radius * 0.35f) + PressDir * (P.Radius * 0.15f);
+		constexpr int32 LiftSteps = 5;
+		for (int32 S = 1; S <= LiftSteps; ++S)
+		{
+			const float Lift = (MaxLip * static_cast<float>(S)) / static_cast<float>(LiftSteps);
+			const float LiftZ = FMath::Max(P.WorldPos.Z, FloorZ) + Lift + P.Radius * 0.2f;
+			const FVector Lifted(OntoTop.X, OntoTop.Y, LiftZ);
+
+			FHitResult ClearHit;
+			FVector ProbeFrom = Lifted;
+			const bool bBlocked = World->SweepSingleByChannel(
+				ClearHit, FVector(P.WorldPos.X, P.WorldPos.Y, LiftZ), Lifted, FQuat::Identity, ECC_WorldStatic,
+				FCollisionShape::MakeSphere(P.Radius * 0.8f), Params);
+			if (bBlocked)
+			{
+				if (ClearHit.bStartPenetrating)
+				{
+					continue;
+				}
+				ProbeFrom = ClearHit.Location;
+			}
+
+			FHitResult DownHit;
+			const FVector DownEnd = ProbeFrom - FVector(0.f, 0.f, Lift + P.Radius + SupportProbeExtraCm);
+			if (!World->SweepSingleByChannel(
+					DownHit, ProbeFrom, DownEnd, FQuat::Identity, ECC_WorldStatic,
+					FCollisionShape::MakeSphere(P.Radius * 0.85f), Params)
+				|| DownHit.ImpactNormal.Z < GroundNormalZ)
+			{
+				continue;
+			}
+
+			const FVector Support = DownHit.ImpactPoint + DownHit.ImpactNormal * P.Radius;
+			if (TryCommitLedge(Support))
+			{
+				break;
+			}
+		}
+	}
+}
+
 void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, const FVector& BodyCenter)
 {
 	const float Creep = 1.f - FMath::Exp(-FMath::Max(0.1f, FormationCreepRate) * Dt);
 	const float Damp = FMath::Exp(-FMath::Max(0.1f, VelocityDamping) * Dt);
 	const float VertScale = FMath::Clamp(FormationVerticalScale, 0.f, 1.f);
+	const float FloorZ = EstimateFloorSupportZ();
+	const float StickXY = FMath::Clamp(CreepClimbStickXY, 0.f, 1.f);
 
 	for (FParticle& P : Particles)
 	{
@@ -388,11 +584,21 @@ void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, cons
 
 		const FVector Formation = BodyCenter + YawQ.RotateVector(P.RestLocal - RestComLocal);
 		FVector Target = Formation;
+		const bool bElevatedSupport = P.bHasSupport && ((P.SupportCenter.Z - FloorZ) > 5.f || P.bObstacleCreeping);
 
 		if (P.bHasSupport)
 		{
-			Target.X = Formation.X;
-			Target.Y = Formation.Y;
+			// Ledge particles keep XY on the obstacle so formation doesn't yank the climb front off.
+			if (bElevatedSupport)
+			{
+				Target.X = FMath::Lerp(Formation.X, P.SupportCenter.X, StickXY);
+				Target.Y = FMath::Lerp(Formation.Y, P.SupportCenter.Y, StickXY);
+			}
+			else
+			{
+				Target.X = Formation.X;
+				Target.Y = Formation.Y;
+			}
 			Target.Z = P.SupportCenter.Z;
 		}
 		else
@@ -419,6 +625,11 @@ void USlimeSoftVolumeComponent::ApplyViscosity(float Dt, const FQuat& YawQ, cons
 		if (P.bHasSupport)
 		{
 			P.WorldPos.Z = FMath::Lerp(P.WorldPos.Z, P.SupportCenter.Z, Creep * 0.85f);
+			if (bElevatedSupport)
+			{
+				P.WorldPos.X = FMath::Lerp(P.WorldPos.X, P.SupportCenter.X, Creep * StickXY * 0.65f);
+				P.WorldPos.Y = FMath::Lerp(P.WorldPos.Y, P.SupportCenter.Y, Creep * StickXY * 0.65f);
+			}
 		}
 	}
 
@@ -457,16 +668,18 @@ void USlimeSoftVolumeComponent::SettleToSupports(float Dt)
 {
 	// Note: climb-wrapping particles keep sleeve SupportCenter from ApplyEngulfClimb.
 	const float Alpha = 1.f - FMath::Exp(-FMath::Max(0.1f, SupportSettleRate) * Dt);
+	const float StickXY = FMath::Clamp(CreepClimbStickXY, 0.f, 1.f);
 	for (FParticle& P : Particles)
 	{
 		if (!P.bHasSupport)
 		{
 			continue;
 		}
-		// Height from local support; light XY stick so we don't slide off slopes instantly.
+		// Height from local support; elevated creep sticks harder in XY so the climb front holds.
+		const float XYAlpha = P.bObstacleCreeping ? (Alpha * FMath::Lerp(0.25f, 0.7f, StickXY)) : (Alpha * 0.2f);
 		P.WorldPos.Z = FMath::Lerp(P.WorldPos.Z, P.SupportCenter.Z, Alpha);
-		P.WorldPos.X = FMath::Lerp(P.WorldPos.X, P.SupportCenter.X, Alpha * 0.2f);
-		P.WorldPos.Y = FMath::Lerp(P.WorldPos.Y, P.SupportCenter.Y, Alpha * 0.2f);
+		P.WorldPos.X = FMath::Lerp(P.WorldPos.X, P.SupportCenter.X, XYAlpha);
+		P.WorldPos.Y = FMath::Lerp(P.WorldPos.Y, P.SupportCenter.Y, XYAlpha);
 		if (P.Velocity.Z < 0.f)
 		{
 			P.Velocity.Z = 0.f;
@@ -512,10 +725,26 @@ FVector USlimeSoftVolumeComponent::SampleDisplacementLocal(const FVector& MeshLo
 	// Macro support-height field: wide Gaussian on planar distance (smooth, no IDW spikes).
 	// Sigma kept moderate so half-up / half-down contrast survives; SkinMacroBoost restores read.
 	const float PlanarBias = FMath::Clamp(SkinPlanarBias, 0.f, 1.f);
-	const float MacroBoost = FMath::Clamp(SkinMacroBoost, 0.8f, 2.5f);
-	const float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
+	float MacroBoost = FMath::Clamp(SkinMacroBoost, 0.8f, 2.5f);
+	float LatScale = FMath::Clamp(SkinLateralScale, 0.f, 1.f);
 	const float Sigma = FMath::Max(16.f, BodyRadiusCm * FMath::Clamp(SkinSigmaScale, 0.25f, 1.f));
 	const float InvTwoSig2 = 1.f / (2.f * Sigma * Sigma);
+
+	// One-sided creep climb: slightly widen lateral skin so the silhouette reads “climbing”.
+	bool bAnyObstacleCreep = false;
+	for (const FParticle& P : Particles)
+	{
+		if (P.bObstacleCreeping)
+		{
+			bAnyObstacleCreep = true;
+			break;
+		}
+	}
+	if (bAnyObstacleCreep)
+	{
+		LatScale = FMath::Min(1.f, LatScale + 0.12f);
+		MacroBoost = FMath::Min(2.5f, MacroBoost + 0.15f);
+	}
 
 	FVector Acc = FVector::ZeroVector;
 	float WSum = 0.f;
@@ -603,10 +832,13 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 	// 2) Per-particle support heights (rock vs floor) — enables edge drape.
 	ProbeSupports(Pawn, bOutGrounded);
 
-	// 3) Ferrofluid climb-wrap onto Held prey (before formation so sleeve wins).
+	// 3) WASD viscous creep onto obstacle lips (particle-wise; no whole-actor StepUp).
+	ApplyObstacleCreepClimb(Pawn, DesiredDelta, Dt, bOutGrounded);
+
+	// 4) Prey climb sleeve retired (surface-drift gut owns devour) — keep call as no-op.
 	ApplyEngulfClimb(Pawn, Dt, YawQ);
 
-	// 4) Viscous formation: XY together, Z mostly free / support-driven (skips climb wrappers).
+	// 5) Viscous formation: XY together, Z mostly free / support-driven; ledge XY stick.
 	FVector Com = GetBodyCenterWorld();
 	{
 		FVector PlanarCom = FVector::ZeroVector;
@@ -623,10 +855,10 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 	}
 	ApplyViscosity(Dt, YawQ, Com);
 
-	// 5) Creep onto local supports / climb sleeve (viscous, no bounce).
+	// 6) Creep onto local supports (viscous, no bounce).
 	SettleToSupports(Dt);
 
-	// 6) Re-resolve after viscosity (particles may have crept into geometry).
+	// 7) Re-resolve after viscosity (particles may have crept into geometry).
 	for (FParticle& P : Particles)
 	{
 		FHitResult Hit;
@@ -641,10 +873,32 @@ bool USlimeSoftVolumeComponent::StepMove(ASlimePawn* Pawn, const FVector& Desire
 		}
 	}
 
-	// 7) Refresh supports after depen / settle so grounded flag stays accurate.
+	// 8) Refresh supports after depen / settle; re-tag elevated lips for skin/viscosity.
 	ProbeSupports(Pawn, bOutGrounded);
+	{
+		const float FloorZ = EstimateFloorSupportZ();
+		const float MaxLip = BodyRadiusCm * FMath::Clamp(CreepClimbMaxHeightFrac, 0.2f, 1.4f);
+		for (FParticle& P : Particles)
+		{
+			if (P.bClimbWrapping)
+			{
+				continue;
+			}
+			if (!P.bHasSupport)
+			{
+				P.bObstacleCreeping = false;
+				continue;
+			}
+			const float LipH = P.SupportCenter.Z - FloorZ;
+			P.bObstacleCreeping = LipH > 5.f && LipH <= MaxLip + P.Radius * 0.55f;
+			if (P.bObstacleCreeping)
+			{
+				bOutGrounded = true;
+			}
+		}
+	}
 
-	// 8) Actor follows particle COM (mid-height when half-on rock — particles keep local Z).
+	// 9) Actor follows particle COM (mid-height when half-on rock — particles keep local Z).
 	SyncActorFromParticles(Pawn);
 	return true;
 }

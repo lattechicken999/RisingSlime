@@ -42,8 +42,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Movement|Step")
 	float MaxStepHeightCapCm = 48.f;
 
+	/**
+	 * Whole-actor step-up (hard path only). Default off — soft-volume creep climb
+	 * is the primary way onto low/mid obstacles (no hop).
+	 */
 	UPROPERTY(EditAnywhere, Category = "Movement|Step")
-	bool bEnableStepUp = true;
+	bool bEnableStepUp = false;
 
 	void ResetMotion();
 	void SetPlanarVelocity(const FVector& V) { PlanarVelocity = V; }
