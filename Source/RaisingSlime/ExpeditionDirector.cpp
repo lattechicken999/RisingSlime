@@ -2,6 +2,7 @@
 #include "Devourable.h"
 #include "SlimePawn.h"
 #include "SlimeGutContentComponent.h"
+#include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
 
 AExpeditionDirector::AExpeditionDirector()
@@ -13,7 +14,7 @@ AExpeditionDirector::AExpeditionDirector()
 void AExpeditionDirector::BeginPlay()
 {
 	Super::BeginPlay();
-	Status = TEXT("둥지에서 나가 사물과 쓰러뜨린 개체를 삼켜라.");
+	Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab으로 형질을 본다.");
 }
 
 void AExpeditionDirector::RegisterSlime(ASlimePawn* InSlime)
@@ -39,6 +40,18 @@ void AExpeditionDirector::CopyOwned(TArray<ETraitId>& OutOwned) const
 bool AExpeditionDirector::Owns(ETraitId Trait) const
 {
 	return Trait != ETraitId::None && (Confirmed.Contains(Trait) || Unstable.Contains(Trait));
+}
+
+void AExpeditionDirector::SyncActiveFromConfirmed()
+{
+	if (Confirmed.Num() > 0)
+	{
+		Active = Confirmed[0];
+	}
+	else if (!Unstable.Contains(Active))
+	{
+		Active = Unstable.Num() > 0 ? Unstable[0] : ETraitId::None;
+	}
 }
 
 float AExpeditionDirector::PreviewChance(const ADevourable* Prey) const
@@ -85,7 +98,7 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 		Active = Prey->Trait;
 		Pity.Add(Prey->Trait, 0);
 		Status = FString::Printf(
-			TEXT("%s의 %s 흡수 성공 (%d%%). 귀환 전에는 불안정하다."),
+			TEXT("%s의 %s 흡수 중 (%d%%). 소화되면 슬롯이 비어 있을 때 확정된다."),
 			*Prey->GetLabel(),
 			*TraitText::Name(Prey->Trait),
 			FMath::RoundToInt(Chance * 100.f));
@@ -101,7 +114,6 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 			FMath::RoundToInt(Chance * 100.f));
 	}
 
-	// Gut proxy first (while prey mesh still valid), then hide world prey.
 	if (Slime && Slime->GetGutContent())
 	{
 		Slime->GetGutContent()->Swallow(Prey);
@@ -114,19 +126,88 @@ void AExpeditionDirector::CompleteDevour(ADevourable* Prey)
 	}
 }
 
-void AExpeditionDirector::CycleActive()
+void AExpeditionDirector::OnGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey)
 {
-	TArray<ETraitId> Owned;
-	CopyOwned(Owned);
-	if (Owned.Num() == 0)
+	const float SettledNow = FMath::Clamp(Mass, 0.f, RunMass);
+	SettledMass += SettledNow;
+	RunMass = FMath::Max(0.f, RunMass - SettledNow);
+
+	bool bPromoted = false;
+	if (Trait != ETraitId::None && Unstable.Contains(Trait))
 	{
-		Active = ETraitId::None;
-		return;
+		if (Confirmed.Contains(Trait))
+		{
+			Unstable.Remove(Trait);
+			bPromoted = true;
+		}
+		else if (Confirmed.Num() < GetSlotCapacity())
+		{
+			Unstable.Remove(Trait);
+			Confirmed.Add(Trait);
+			bPromoted = true;
+		}
+		// Slot full: keep Unstable; mass still settled.
 	}
 
-	const int32 Index = Owned.IndexOfByKey(Active);
-	const int32 Next = (Index + 1) % Owned.Num();
-	Active = Owned[Next >= 0 ? Next : 0];
+	SyncActiveFromConfirmed();
+
+	if (Prey)
+	{
+		Prey->BeginRespawnCooldown();
+	}
+
+	if (Slime)
+	{
+		Slime->RefreshBody();
+	}
+
+	if (Trait != ETraitId::None && Unstable.Contains(Trait) && !bPromoted)
+	{
+		Status = FString::Printf(
+			TEXT("질량 %.1f 정착. %s은(는) 슬롯이 가득 차 불안정으로 남았다."),
+			SettledNow, *TraitText::Name(Trait));
+	}
+	else if (bPromoted)
+	{
+		Status = FString::Printf(
+			TEXT("질량 %.1f 정착. %s 확정."), SettledNow, *TraitText::Name(Trait));
+	}
+	else
+	{
+		Status = FString::Printf(TEXT("질량 %.1f 정착했다."), SettledNow);
+	}
+}
+
+void AExpeditionDirector::CycleActive()
+{
+	if (Confirmed.Num() == 0)
+	{
+		TArray<ETraitId> Owned;
+		CopyOwned(Owned);
+		if (Owned.Num() == 0)
+		{
+			Active = ETraitId::None;
+			return;
+		}
+		const int32 Index = Owned.IndexOfByKey(Active);
+		const int32 Next = (Index + 1) % Owned.Num();
+		Active = Owned[Next >= 0 ? Next : 0];
+	}
+	else
+	{
+		const int32 Index = Confirmed.IndexOfByKey(Active);
+		const int32 From = Index >= 0 ? Index : 0;
+		const int32 Next = (From + 1) % Confirmed.Num();
+		if (Next != 0)
+		{
+			// Rotate so chosen trait becomes top (Active).
+			ETraitId Chosen = Confirmed[Next];
+			Confirmed.RemoveAt(Next);
+			Confirmed.Insert(Chosen, 0);
+		}
+		Active = Confirmed[0];
+	}
+
 	const FString State = IsActiveConfirmed() ? TEXT("확정") : TEXT("불안정");
 	Status = FString::Printf(TEXT("활성 형질: %s (%s)"), *TraitText::Name(Active), *State);
 }
@@ -142,19 +223,20 @@ bool AExpeditionDirector::TryConfirm(ETraitId Trait)
 	{
 		Unstable.Remove(Trait);
 		Status = FString::Printf(TEXT("%s은(는) 이미 확정되어 있다."), *TraitText::Name(Trait));
+		SyncActiveFromConfirmed();
 		return true;
 	}
 
 	if (Confirmed.Num() >= GetSlotCapacity())
 	{
-		Status = TEXT("슬롯이 가득 찼다. 하나를 토해내야 새 형질을 확정할 수 있다.");
+		Status = TEXT("슬롯이 가득 찼다. 흡수만 되고 형질은 불안정으로 남는다.");
 		return false;
 	}
 
 	Unstable.Remove(Trait);
 	Confirmed.Add(Trait);
-	Active = Trait;
-	Status = FString::Printf(TEXT("%s 확정. 이후 출정에도 남는다."), *TraitText::Name(Trait));
+	SyncActiveFromConfirmed();
+	Status = FString::Printf(TEXT("%s 확정. 이후에도 남는다."), *TraitText::Name(Trait));
 	return true;
 }
 
@@ -165,13 +247,7 @@ void AExpeditionDirector::Spit(ETraitId Trait)
 		return;
 	}
 
-	if (Active == Trait)
-	{
-		TArray<ETraitId> Owned;
-		CopyOwned(Owned);
-		Active = Owned.Num() > 0 ? Owned[0] : ETraitId::None;
-	}
-
+	SyncActiveFromConfirmed();
 	Status = FString::Printf(TEXT("%s을(를) 토해냈다."), *TraitText::Name(Trait));
 	if (Slime)
 	{
@@ -179,34 +255,67 @@ void AExpeditionDirector::Spit(ETraitId Trait)
 	}
 }
 
+bool AExpeditionDirector::PurgeConfirmedTrait(ETraitId Trait)
+{
+	if (!bHasTraitPurgeItem || !Confirmed.Contains(Trait))
+	{
+		return false;
+	}
+
+	Confirmed.Remove(Trait);
+	SyncActiveFromConfirmed();
+	Status = FString::Printf(TEXT("%s을(를) 삭제했다."), *TraitText::Name(Trait));
+	return true;
+}
+
+bool AExpeditionDirector::ReorderConfirmed(ETraitId Dragged, ETraitId DropTarget)
+{
+	const int32 From = Confirmed.IndexOfByKey(Dragged);
+	const int32 To = Confirmed.IndexOfByKey(DropTarget);
+	if (From < 0 || To < 0 || From == To)
+	{
+		return false;
+	}
+
+	Confirmed.RemoveAt(From);
+	const int32 InsertAt = Confirmed.IndexOfByKey(DropTarget);
+	if (InsertAt < 0)
+	{
+		Confirmed.Add(Dragged);
+	}
+	else if (From < To)
+	{
+		Confirmed.Insert(Dragged, InsertAt + 1);
+	}
+	else
+	{
+		Confirmed.Insert(Dragged, InsertAt);
+	}
+
+	SyncActiveFromConfirmed();
+	Status = FString::Printf(TEXT("활성 형질: %s"), *TraitText::Name(Active));
+	return true;
+}
+
 void AExpeditionDirector::Settle()
 {
+	// Legacy nest settle path — field absorb replaces this for normal play.
+	// Still settles all run mass without nest teleport / global prey reset.
 	const int32 Discarded = Unstable.Num();
 	SettledMass += RunMass;
 	RunMass = 0.f;
 	Unstable.Reset();
-	if (!Confirmed.Contains(Active))
-	{
-		TArray<ETraitId> Owned;
-		CopyOwned(Owned);
-		Active = Owned.Num() > 0 ? Owned[0] : ETraitId::None;
-	}
+	SyncActiveFromConfirmed();
 
-	// Digestion complete: melt gut contents, then restore world prey / nest.
 	if (Slime)
 	{
 		Slime->BeginGutDissolve();
-	}
-	ResetWorld();
-	if (Slime)
-	{
 		Slime->Recover();
-		Slime->TeleportToNest(NestSpawnTransform);
 	}
 
 	Status = Discarded > 0
-		? FString::Printf(TEXT("질량을 정착했다. 확정하지 않은 형질 %d개는 몸에 남지 않았다."), Discarded)
-		: TEXT("질량을 정착했다. 다음 출정을 나갈 수 있다.");
+		? FString::Printf(TEXT("질량을 정착했다. 불안정 형질 %d개는 남지 않았다."), Discarded)
+		: TEXT("질량을 정착했다.");
 }
 
 void AExpeditionDirector::Die()
@@ -219,21 +328,45 @@ void AExpeditionDirector::Die()
 
 	RunMass = 0.f;
 	Unstable.Reset();
-	if (!Confirmed.Contains(Active))
+	SyncActiveFromConfirmed();
+
+	// Unabsorbed prey never got absorb-complete respawn — kick cooldowns now.
+	TArray<AActor*> Found;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), ADevourable::StaticClass(), Found);
+	for (AActor* Actor : Found)
 	{
-		TArray<ETraitId> Owned;
-		CopyOwned(Owned);
-		Active = Owned.Num() > 0 ? Owned[0] : ETraitId::None;
+		if (ADevourable* Prey = Cast<ADevourable>(Actor))
+		{
+			if (Prey->IsConsumed())
+			{
+				Prey->BeginRespawnCooldown();
+			}
+		}
 	}
 
-	ResetWorld();
 	if (Slime)
 	{
 		Slime->Recover();
-		Slime->TeleportToNest(NestSpawnTransform);
 	}
+	TeleportSlimeToPlayerStart();
 
 	Status = TEXT("몸이 풀렸다. 이번 출정의 질량과 불안정 형질은 사라졌다.");
+}
+
+void AExpeditionDirector::TeleportSlimeToPlayerStart()
+{
+	if (!Slime || !GetWorld())
+	{
+		return;
+	}
+
+	FTransform Spawn = NestSpawnTransform;
+	if (AActor* Start = UGameplayStatics::GetActorOfClass(GetWorld(), APlayerStart::StaticClass()))
+	{
+		Spawn = Start->GetActorTransform();
+	}
+
+	Slime->TeleportToSpawn(Spawn);
 }
 
 void AExpeditionDirector::ResetWorld()

@@ -1,6 +1,8 @@
 #include "Devourable.h"
 #include "CreatureAgent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 
 ADevourable::ADevourable()
 {
@@ -18,6 +20,15 @@ void ADevourable::BeginPlay()
 {
 	Super::BeginPlay();
 	StoreHome();
+}
+
+void ADevourable::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RespawnTimer);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 FString ADevourable::GetLabel() const
@@ -60,10 +71,42 @@ void ADevourable::Consume()
 	SetActorHiddenInGame(true);
 	SetActorEnableCollision(false);
 	SetActorTickEnabled(false);
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RespawnTimer);
+	}
+}
+
+void ADevourable::BeginRespawnCooldown()
+{
+	if (!bConsumed)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	World->GetTimerManager().ClearTimer(RespawnTimer);
+	const float Delay = FMath::Max(0.5f, RespawnCooldown);
+	World->GetTimerManager().SetTimer(RespawnTimer, this, &ADevourable::OnRespawnTimer, Delay, false);
+}
+
+void ADevourable::OnRespawnTimer()
+{
+	RestoreScenePlacement();
 }
 
 void ADevourable::RestoreScenePlacement()
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RespawnTimer);
+	}
+
 	if (!bHomeStored)
 	{
 		StoreHome();

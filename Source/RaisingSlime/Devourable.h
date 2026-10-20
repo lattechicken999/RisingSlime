@@ -14,6 +14,7 @@ public:
 	ADevourable();
 
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UFUNCTION(BlueprintCallable, Category = "Prey")
 	FString GetLabel() const;
@@ -28,6 +29,8 @@ public:
 
 	void StoreHome();
 	void Consume();
+	/** Start per-actor respawn after absorb (or death cleanup). */
+	void BeginRespawnCooldown();
 	virtual void RestoreScenePlacement();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey")
@@ -45,11 +48,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey")
 	float BaseChance = 0.5f;
 
+	/** Seconds after absorb before this prey returns. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prey")
+	float RespawnCooldown = 12.f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Prey")
 	TObjectPtr<UStaticMeshComponent> MeshComponent;
 
 protected:
+	UFUNCTION()
+	void OnRespawnTimer();
+
 	bool bConsumed = false;
 	bool bHomeStored = false;
 	FTransform HomeTransform;
+	FTimerHandle RespawnTimer;
 };

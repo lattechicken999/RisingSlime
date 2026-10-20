@@ -1,6 +1,6 @@
 #include "RaisingSlimeHud.h"
 #include "SlimeHudWidget.h"
-#include "DigestMenuWidget.h"
+#include "TraitPanelWidget.h"
 #include "RaisingSlimePlayerController.h"
 #include "Blueprint/UserWidget.h"
 
@@ -16,7 +16,7 @@ void ARaisingSlimeHUD::BeginPlay()
 
 void ARaisingSlimeHUD::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	CloseDigestMenu();
+	CloseTraitPanel();
 	if (HudWidget)
 	{
 		HudWidget->RemoveFromParent();
@@ -40,44 +40,56 @@ void ARaisingSlimeHUD::EnsureHudWidget()
 	}
 }
 
-void ARaisingSlimeHUD::OpenDigestMenu()
+void ARaisingSlimeHUD::OpenTraitPanel()
 {
 	EnsureHudWidget();
-	bDigestOpen = true;
+	bTraitPanelOpen = true;
 	if (HudWidget)
 	{
-		HudWidget->SetDigestOpen(true);
+		HudWidget->SetTraitPanelOpen(true);
 	}
 
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(PlayerOwner))
 	{
-		PC->SetMenuOpen(true);
-		if (!DigestWidget)
+		// Cursor for drag; do not SetMenuOpen — move/look stay available.
+		PC->SetCursorUnlocked(true);
+		if (!TraitPanelWidget)
 		{
-			DigestWidget = CreateWidget<UDigestMenuWidget>(PC, UDigestMenuWidget::StaticClass());
+			TraitPanelWidget = CreateWidget<UTraitPanelWidget>(PC, UTraitPanelWidget::StaticClass());
 		}
-		if (DigestWidget)
+		if (TraitPanelWidget)
 		{
-			DigestWidget->AddToViewport(50);
-			DigestWidget->Refresh();
+			TraitPanelWidget->AddToViewport(50);
+			TraitPanelWidget->Refresh();
 		}
 	}
 }
 
-void ARaisingSlimeHUD::CloseDigestMenu()
+void ARaisingSlimeHUD::CloseTraitPanel()
 {
-	bDigestOpen = false;
+	bTraitPanelOpen = false;
 	if (HudWidget)
 	{
-		HudWidget->SetDigestOpen(false);
+		HudWidget->SetTraitPanelOpen(false);
 	}
-	if (DigestWidget)
+	if (TraitPanelWidget)
 	{
-		DigestWidget->RemoveFromParent();
+		TraitPanelWidget->RemoveFromParent();
 	}
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(PlayerOwner))
 	{
-		PC->SetMenuOpen(false);
 		PC->SetCursorUnlocked(false);
+	}
+}
+
+void ARaisingSlimeHUD::ToggleTraitPanel()
+{
+	if (bTraitPanelOpen)
+	{
+		CloseTraitPanel();
+	}
+	else
+	{
+		OpenTraitPanel();
 	}
 }

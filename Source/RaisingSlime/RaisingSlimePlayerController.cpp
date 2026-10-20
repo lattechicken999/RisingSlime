@@ -1,10 +1,12 @@
 #include "RaisingSlimePlayerController.h"
 #include "SlimePawn.h"
+#include "ExpeditionDirector.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "InputModifiers.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Kismet/GameplayStatics.h"
 
 ARaisingSlimePlayerController::ARaisingSlimePlayerController()
 {
@@ -119,6 +121,16 @@ void ARaisingSlimePlayerController::ApplyCursorState()
 	}
 }
 
+void ARaisingSlimePlayerController::GiveTraitPurgeItem()
+{
+	if (AExpeditionDirector* Director = Cast<AExpeditionDirector>(
+			UGameplayStatics::GetActorOfClass(GetWorld(), AExpeditionDirector::StaticClass())))
+	{
+		Director->SetHasTraitPurgeItem(true);
+		UE_LOG(LogTemp, Display, TEXT("GiveTraitPurgeItem: purge unlocked"));
+	}
+}
+
 bool ARaisingSlimePlayerController::TryLoadAssetInput()
 {
 	if (MappingContext && MoveAction)
@@ -133,12 +145,12 @@ bool ARaisingSlimePlayerController::TryLoadAssetInput()
 	UInputAction* LoadedAttack = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Attack.IA_Attack"));
 	UInputAction* LoadedTrait = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Trait.IA_Trait"));
 	UInputAction* LoadedCycle = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_CycleTrait.IA_CycleTrait"));
-	UInputAction* LoadedDigest = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Digest.IA_Digest"));
+	UInputAction* LoadedTraitPanel = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_TraitPanel.IA_TraitPanel"));
 	UInputAction* LoadedCursor = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Cursor.IA_Cursor"));
 	UInputAction* LoadedFocus = LoadObject<UInputAction>(nullptr, TEXT("/Game/Input/IA_Focus.IA_Focus"));
 
 	if (!LoadedImc || !LoadedMove || !LoadedLook || !LoadedJump || !LoadedAttack
-		|| !LoadedTrait || !LoadedCycle || !LoadedDigest || !LoadedCursor || !LoadedFocus)
+		|| !LoadedTrait || !LoadedCycle || !LoadedCursor || !LoadedFocus)
 	{
 		return false;
 	}
@@ -150,11 +162,22 @@ bool ARaisingSlimePlayerController::TryLoadAssetInput()
 	AttackAction = LoadedAttack;
 	TraitAction = LoadedTrait;
 	CycleTraitAction = LoadedCycle;
-	DigestAction = LoadedDigest;
 	CursorAction = LoadedCursor;
 	FocusAction = LoadedFocus;
 
-	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded /Game/Input/IMC_Slime + IA_* assets"));
+	// Tab panel is runtime-bound so legacy IMC E→IA_Digest does not gate digests.
+	if (LoadedTraitPanel)
+	{
+		TraitPanelAction = LoadedTraitPanel;
+	}
+	else
+	{
+		TraitPanelAction = NewObject<UInputAction>(this, TEXT("IA_TraitPanel"));
+		TraitPanelAction->ValueType = EInputActionValueType::Boolean;
+	}
+	MappingContext->MapKey(TraitPanelAction, EKeys::Tab);
+
+	UE_LOG(LogTemp, Display, TEXT("RaisingSlimePC: loaded /Game/Input/IMC_Slime + IA_* (TraitPanel=Tab)"));
 	return true;
 }
 
@@ -186,7 +209,7 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 	AttackAction = MakeAction(TEXT("IA_Attack"), EInputActionValueType::Boolean);
 	TraitAction = MakeAction(TEXT("IA_Trait"), EInputActionValueType::Boolean);
 	CycleTraitAction = MakeAction(TEXT("IA_CycleTrait"), EInputActionValueType::Boolean);
-	DigestAction = MakeAction(TEXT("IA_Digest"), EInputActionValueType::Boolean);
+	TraitPanelAction = MakeAction(TEXT("IA_TraitPanel"), EInputActionValueType::Boolean);
 	CursorAction = MakeAction(TEXT("IA_Cursor"), EInputActionValueType::Boolean);
 	FocusAction = MakeAction(TEXT("IA_Focus"), EInputActionValueType::Boolean);
 
@@ -216,7 +239,7 @@ void ARaisingSlimePlayerController::BuildRuntimeInput()
 	MappingContext->MapKey(AttackAction, EKeys::LeftMouseButton);
 	MappingContext->MapKey(TraitAction, EKeys::RightMouseButton);
 	MappingContext->MapKey(CycleTraitAction, EKeys::Q);
-	MappingContext->MapKey(DigestAction, EKeys::E);
+	MappingContext->MapKey(TraitPanelAction, EKeys::Tab);
 	MappingContext->MapKey(CursorAction, EKeys::Escape);
 	MappingContext->MapKey(FocusAction, EKeys::LeftMouseButton);
 

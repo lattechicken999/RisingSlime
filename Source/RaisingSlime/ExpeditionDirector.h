@@ -39,21 +39,32 @@ public:
 	const TArray<ETraitId>& GetUnstableTraits() const { return Unstable; }
 	const FString& GetStatus() const { return Status; }
 
+	bool HasTraitPurgeItem() const { return bHasTraitPurgeItem; }
+	void SetHasTraitPurgeItem(bool bValue) { bHasTraitPurgeItem = bValue; }
+
 	void CopyOwned(TArray<ETraitId>& OutOwned) const;
 	float PreviewChance(const ADevourable* Prey) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	void CompleteDevour(ADevourable* Prey);
 
+	/** Field absorb: settle one gut's mass; promote Unstable→Confirmed if slot free. */
+	void OnGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey);
+
 	void CycleActive();
 	bool TryConfirm(ETraitId Trait);
 	void Spit(ETraitId Trait);
+	bool PurgeConfirmedTrait(ETraitId Trait);
+	bool ReorderConfirmed(ETraitId Dragged, ETraitId DropTarget);
+	void SyncActiveFromConfirmed();
 
+	/** Legacy nest settle — unused by field absorb UI; kept for tooling. */
 	UFUNCTION(BlueprintCallable, Category = "Expedition")
 	void Settle();
 
 	void Die();
 	void ResetWorld();
+	void TeleportSlimeToPlayerStart();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Nest")
 	FTransform NestSpawnTransform;
@@ -71,5 +82,6 @@ protected:
 	TArray<ETraitId> Unstable;
 	TMap<ETraitId, int32> Pity;
 	float LastEatTime = 0.f;
-	FString Status = TEXT("둥지에서 나가 사물과 쓰러뜨린 개체를 삼켜라.");
+	bool bHasTraitPurgeItem = false;
+	FString Status = TEXT("사물과 쓰러뜨린 개체를 삼켜라. Tab으로 형질을 본다.");
 };

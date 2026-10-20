@@ -2,7 +2,6 @@
 #include "ExpeditionDirector.h"
 #include "Devourable.h"
 #include "CreatureAgent.h"
-#include "NestZone.h"
 #include "RaisingSlimeTypes.h"
 #include "SlimePawn.h"
 #include "Blueprint/WidgetTree.h"
@@ -119,7 +118,7 @@ void USlimeHudWidget::RebuildLayout()
 
 	HintBottom = MakeLabel(WidgetTree, TEXT("HintBottom"), 14.f);
 	HintBottom->SetText(FText::FromString(
-		TEXT("WASD 이동  마우스 시점  좌클릭 공격  우클릭 형질  Q 형질 전환  몸에 닿으면 포식  E 소화실  Esc 커서")));
+		TEXT("WASD 이동  마우스 시점  좌클릭 공격  우클릭 형질  Q 형질 전환  몸에 닿으면 포식  Tab 형질  Esc 커서")));
 	{
 		UCanvasPanelSlot* S = Root->AddChildToCanvas(HintBottom);
 		S->SetAnchors(FAnchors(0.f, 1.f, 1.f, 1.f));
@@ -266,21 +265,16 @@ void USlimeHudWidget::RefreshFromWorld()
 
 	if (NestHint)
 	{
-		bool bShowNest = false;
-		if (Director && !bDigestOpen)
+		const bool bShowHint = Director && !bTraitPanelOpen;
+		NestHint->SetVisibility(bShowHint ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		if (bShowHint)
 		{
-			ANestZone* Nest = Cast<ANestZone>(UGameplayStatics::GetActorOfClass(World, ANestZone::StaticClass()));
-			bShowNest = Nest && Nest->IsPlayerInside();
-		}
-		NestHint->SetVisibility(bShowNest ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-		if (bShowNest)
-		{
-			NestHint->SetText(FText::FromString(TEXT("둥지 안이다. E로 소화실을 연다.")));
+			NestHint->SetText(FText::FromString(TEXT("Tab: 형질 목록")));
 		}
 	}
 	if (StatusText)
 	{
 		StatusText->SetText(FText::FromString(Director ? Director->GetStatus() : FString()));
-		StatusText->SetVisibility(bDigestOpen ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+		StatusText->SetVisibility(bTraitPanelOpen ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 	}
 }

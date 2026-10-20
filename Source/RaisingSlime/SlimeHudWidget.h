@@ -21,7 +21,7 @@ public:
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
-	void SetDigestOpen(bool bOpen) { bDigestOpen = bOpen; }
+	void SetTraitPanelOpen(bool bOpen) { bTraitPanelOpen = bOpen; }
 
 protected:
 	void RebuildLayout();
@@ -54,5 +54,5 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UTextBlock> StatusText;
 
-	bool bDigestOpen = false;
+	bool bTraitPanelOpen = false;
 };

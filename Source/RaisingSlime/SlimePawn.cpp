@@ -2,7 +2,6 @@
 #include "ExpeditionDirector.h"
 #include "Devourable.h"
 #include "CreatureAgent.h"
-#include "NestZone.h"
 #include "SlimeShot.h"
 #include "SlimeMovementComponent.h"
 #include "JellyDeformerComponent.h"
@@ -101,6 +100,10 @@ void ASlimePawn::BeginPlay()
 	{
 		SoftVolume->RebuildRest(GetBodySize() * 50.f);
 	}
+	if (GutContent)
+	{
+		GutContent->OnGutAbsorbed.BindUObject(this, &ASlimePawn::HandleGutAbsorbed);
+	}
 	if (ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
 	{
 		PC->SetCursorUnlocked(false);
@@ -181,9 +184,9 @@ void ASlimePawn::BindEnhancedInput()
 	{
 		EIC->BindAction(PC->GetCycleTraitAction(), ETriggerEvent::Started, this, &ASlimePawn::OnCycleTrait);
 	}
-	if (PC->GetDigestAction())
+	if (PC->GetTraitPanelAction())
 	{
-		EIC->BindAction(PC->GetDigestAction(), ETriggerEvent::Started, this, &ASlimePawn::OnDigest);
+		EIC->BindAction(PC->GetTraitPanelAction(), ETriggerEvent::Started, this, &ASlimePawn::OnTraitPanel);
 	}
 	if (PC->GetCursorAction())
 	{
@@ -195,7 +198,7 @@ void ASlimePawn::BindEnhancedInput()
 	}
 
 	bEnhancedInputBound = true;
-	UE_LOG(LogTemp, Log, TEXT("SlimePawn: Enhanced Input bound (Move/Jump/Attack/...)"));
+	UE_LOG(LogTemp, Log, TEXT("SlimePawn: Enhanced Input bound (Move/Jump/Attack/TraitPanel/...)"));
 }
 
 void ASlimePawn::Tick(float DeltaSeconds)
@@ -204,9 +207,11 @@ void ASlimePawn::Tick(float DeltaSeconds)
 
 	ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController());
 	const bool bMenu = IsMenuBlocking();
+	const bool bCombatBlocked = IsCombatBlocked();
 
 	// Poll WASD/Space from the PC every frame. Enhanced Input Axis2D bindings can fail to
 	// deliver (IME, Completed zeroing, modifier order) even when BindAction succeeded.
+	// Trait panel allows move/look; only full menu freezes locomotion.
 	if (PC && !bMenu)
 	{
 		FVector2D KeyMove = FVector2D::ZeroVector;
@@ -246,8 +251,11 @@ void ASlimePawn::Tick(float DeltaSeconds)
 		}
 	}
 
-	// Raw mouse look when locked (bypass Mouse2D AxisConfig 0.07 so we can apply 0.22 deg/px)
-	if (PC && !bMenu && !PC->IsCursorUnlocked())
+	// Raw mouse look (bypass Mouse2D AxisConfig 0.07 so we can apply 0.22 deg/px).
+	// Trait panel keeps look; cursor-only unlock without panel still skips look.
+	ARaisingSlimeHUD* Hud = Cast<ARaisingSlimeHUD>(PC ? PC->GetHUD() : nullptr);
+	const bool bTraitPanel = Hud && Hud->IsTraitPanelOpen();
+	if (PC && !bMenu && (!PC->IsCursorUnlocked() || bTraitPanel))
 	{
 		float DeltaX = 0.f;
 		float DeltaY = 0.f;
@@ -267,17 +275,18 @@ void ASlimePawn::Tick(float DeltaSeconds)
 		Aimed = nullptr;
 		bJumpQueued = false;
 	}
+	else if (bCombatBlocked)
+	{
+		Channel = 0.f;
+		Channel01 = 0.f;
+		EngulfTarget = nullptr;
+		Aimed = nullptr;
+		UpdateAim();
+	}
 	else
 	{
 		UpdateAim();
 		Devour(DeltaSeconds);
-
-		ANestZone* Nest = Cast<ANestZone>(UGameplayStatics::GetActorOfClass(GetWorld(), ANestZone::StaticClass()));
-		ARaisingSlimeHUD* Hud = Cast<ARaisingSlimeHUD>(PC ? PC->GetHUD() : nullptr);
-		if (Hud && Hud->IsDigestMenuOpen() && Nest && !Nest->IsPlayerInside())
-		{
-			Hud->CloseDigestMenu();
-		}
 	}
 
 	FixedAccumulator += DeltaSeconds;
@@ -344,7 +353,7 @@ void ASlimePawn::OnJumpStarted(const FInputActionValue& /*Value*/)
 
 void ASlimePawn::OnAttack(const FInputActionValue& /*Value*/)
 {
-	if (IsMenuBlocking())
+	if (IsCombatBlocked())
 	{
 		return;
 	}
@@ -353,7 +362,7 @@ void ASlimePawn::OnAttack(const FInputActionValue& /*Value*/)
 
 void ASlimePawn::OnTrait(const FInputActionValue& /*Value*/)
 {
-	if (IsMenuBlocking())
+	if (IsCombatBlocked())
 	{
 		return;
 	}
@@ -372,21 +381,13 @@ void ASlimePawn::OnCycleTrait(const FInputActionValue& /*Value*/)
 	}
 }
 
-void ASlimePawn::OnDigest(const FInputActionValue& /*Value*/)
+void ASlimePawn::OnTraitPanel(const FInputActionValue& /*Value*/)
 {
-	ANestZone* Nest = Cast<ANestZone>(UGameplayStatics::GetActorOfClass(GetWorld(), ANestZone::StaticClass()));
 	ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController());
 	ARaisingSlimeHUD* Hud = Cast<ARaisingSlimeHUD>(PC ? PC->GetHUD() : nullptr);
-	if (Nest && Nest->IsPlayerInside() && Hud)
+	if (Hud)
 	{
-		if (Hud->IsDigestMenuOpen())
-		{
-			Hud->CloseDigestMenu();
-		}
-		else
-		{
-			Hud->OpenDigestMenu();
-		}
+		Hud->ToggleTraitPanel();
 	}
 }
 
@@ -394,9 +395,9 @@ void ASlimePawn::OnCursor(const FInputActionValue& /*Value*/)
 {
 	ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController());
 	ARaisingSlimeHUD* Hud = Cast<ARaisingSlimeHUD>(PC ? PC->GetHUD() : nullptr);
-	if (Hud && Hud->IsDigestMenuOpen())
+	if (Hud && Hud->IsTraitPanelOpen())
 	{
-		Hud->CloseDigestMenu();
+		Hud->CloseTraitPanel();
 		return;
 	}
 	if (PC)
@@ -408,6 +409,11 @@ void ASlimePawn::OnCursor(const FInputActionValue& /*Value*/)
 void ASlimePawn::OnFocus(const FInputActionValue& /*Value*/)
 {
 	ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController());
+	ARaisingSlimeHUD* Hud = Cast<ARaisingSlimeHUD>(PC ? PC->GetHUD() : nullptr);
+	if (Hud && Hud->IsTraitPanelOpen())
+	{
+		return;
+	}
 	if (PC && PC->IsCursorUnlocked() && !PC->IsMenuOpen())
 	{
 		PC->SetCursorUnlocked(false);
@@ -593,6 +599,14 @@ void ASlimePawn::ClearGutContent()
 	}
 }
 
+void ASlimePawn::HandleGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey)
+{
+	if (AExpeditionDirector* Director = FindDirector())
+	{
+		Director->OnGutAbsorbed(Mass, Trait, Prey);
+	}
+}
+
 void ASlimePawn::PlaySpitSplash()
 {
 	SlimeVfx::Play(GetWorld(), ESlimeSplashKind::Spit, GetActorLocation(), GetBodySize());
@@ -628,20 +642,16 @@ void ASlimePawn::Recover()
 	// Keep dissolving gut visuals if settle started melt; clear only if empty/done next tick.
 }
 
-void ASlimePawn::TeleportToNest(const FTransform& NestTransform)
+void ASlimePawn::TeleportToSpawn(const FTransform& SpawnTransform)
 {
-	SetActorTransform(NestTransform);
-	Yaw = NestTransform.Rotator().Yaw;
+	SetActorTransform(SpawnTransform);
+	Yaw = SpawnTransform.Rotator().Yaw;
 	Pitch = RaisingSlimeUnits::DefaultPitch;
 	Movement->ResetMotion();
 	Jelly->ResetMotion();
 	if (SoftVolume)
 	{
 		SoftVolume->TeleportWithActor();
-	}
-	if (ANestZone* Nest = Cast<ANestZone>(UGameplayStatics::GetActorOfClass(GetWorld(), ANestZone::StaticClass())))
-	{
-		Nest->Refresh();
 	}
 }
 
@@ -716,6 +726,22 @@ bool ASlimePawn::IsMenuBlocking() const
 	if (const ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
 	{
 		return PC->IsMenuOpen();
+	}
+	return false;
+}
+
+bool ASlimePawn::IsCombatBlocked() const
+{
+	if (IsMenuBlocking())
+	{
+		return true;
+	}
+	if (const ARaisingSlimePlayerController* PC = Cast<ARaisingSlimePlayerController>(GetController()))
+	{
+		if (const ARaisingSlimeHUD* Hud = Cast<ARaisingSlimeHUD>(PC->GetHUD()))
+		{
+			return Hud->IsTraitPanelOpen();
+		}
 	}
 	return false;
 }

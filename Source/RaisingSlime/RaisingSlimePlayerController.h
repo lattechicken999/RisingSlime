@@ -36,9 +36,13 @@ public:
 	UInputAction* GetAttackAction() const { return AttackAction; }
 	UInputAction* GetTraitAction() const { return TraitAction; }
 	UInputAction* GetCycleTraitAction() const { return CycleTraitAction; }
-	UInputAction* GetDigestAction() const { return DigestAction; }
+	UInputAction* GetTraitPanelAction() const { return TraitPanelAction; }
 	UInputAction* GetCursorAction() const { return CursorAction; }
 	UInputAction* GetFocusAction() const { return FocusAction; }
+
+	/** Dev cheat: unlock trait purge in Tab panel. */
+	UFUNCTION(Exec)
+	void GiveTraitPurgeItem();
 
 protected:
 	void BuildRuntimeInput();
@@ -63,7 +67,7 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UInputAction> CycleTraitAction;
 	UPROPERTY()
-	TObjectPtr<UInputAction> DigestAction;
+	TObjectPtr<UInputAction> TraitPanelAction;
 	UPROPERTY()
 	TObjectPtr<UInputAction> CursorAction;
 	UPROPERTY()

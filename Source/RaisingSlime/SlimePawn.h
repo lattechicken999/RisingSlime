@@ -41,9 +41,10 @@ public:
 	USlimeSoftVolumeComponent* GetSoftVolume() const { return SoftVolume; }
 	USlimeGutContentComponent* GetGutContent() const { return GutContent; }
 
-	/** Begin melting swallowed proxies (settle / death). */
+	/** Begin melting swallowed proxies (death / legacy settle). */
 	void BeginGutDissolve();
 	void ClearGutContent();
+	void HandleGutAbsorbed(float Mass, ETraitId Trait, ADevourable* Prey);
 
 	UFUNCTION(BlueprintCallable, Category = "Slime")
 	float GetHp() const { return Hp; }
@@ -64,7 +65,7 @@ public:
 	void RefreshBody();
 	void NotifyAte();
 	void Recover();
-	void TeleportToNest(const FTransform& NestTransform);
+	void TeleportToSpawn(const FTransform& SpawnTransform);
 	void TakeDamageAmount(float Amount);
 	void AddImpact(float Amount);
 	void PlayDevourSplash(const FVector& AtLocation);
@@ -83,7 +84,7 @@ protected:
 	void OnAttack(const struct FInputActionValue& Value);
 	void OnTrait(const struct FInputActionValue& Value);
 	void OnCycleTrait(const struct FInputActionValue& Value);
-	void OnDigest(const struct FInputActionValue& Value);
+	void OnTraitPanel(const struct FInputActionValue& Value);
 	void OnCursor(const struct FInputActionValue& Value);
 	void OnFocus(const struct FInputActionValue& Value);
 
@@ -96,6 +97,7 @@ protected:
 	float ReachMeters() const;
 	AExpeditionDirector* FindDirector() const;
 	bool IsMenuBlocking() const;
+	bool IsCombatBlocked() const;
 	ADevourable* FindEngulfTarget() const;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Slime")

@@ -2,14 +2,17 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "RaisingSlimeTypes.h"
 #include "SlimeGutContentComponent.generated.h"
 
 class ADevourable;
 class UStaticMeshComponent;
 
+DECLARE_DELEGATE_ThreeParams(FOnGutAbsorbed, float /*Mass*/, ETraitId /*Trait*/, ADevourable* /*Prey*/);
+
 /**
- * Gut visuals: swallowed prey floats inside the translucent slime until settle,
- * then dissolves. Does not drive soft-volume physics.
+ * Gut visuals: swallowed prey floats inside the translucent slime until absorb timer
+ * completes, then dissolves. Does not drive soft-volume physics.
  */
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class RAISINGSLIME_API USlimeGutContentComponent : public UActorComponent
@@ -24,13 +27,18 @@ public:
 	/** Pull prey mesh into the body as a floating gut proxy. */
 	void Swallow(ADevourable* Prey);
 
-	/** Start melting all gut contents (digest settle / death). */
+	/** Start melting all gut contents (death). */
 	void BeginDissolveAll();
 
 	void ClearImmediate();
 
 	int32 GetGutCount() const { return Entries.Num(); }
 	float GetSwallowSwellBonus() const { return SwellBonus; }
+
+	FOnGutAbsorbed OnGutAbsorbed;
+
+	UPROPERTY(EditAnywhere, Category = "Gut")
+	float AbsorbDuration = 8.f;
 
 	UPROPERTY(EditAnywhere, Category = "Gut")
 	float BobAmpCm = 6.f;
@@ -58,6 +66,11 @@ protected:
 	struct FGutEntry
 	{
 		UStaticMeshComponent* Mesh = nullptr;
+		TWeakObjectPtr<ADevourable> Prey;
+		float Mass = 0.f;
+		ETraitId Trait = ETraitId::None;
+		float AbsorbRemaining = 8.f;
+		bool bAbsorbNotified = false;
 		FVector BaseLocal = FVector::ZeroVector;
 		FVector PullStartLocal = FVector::ZeroVector;
 		float Phase = 0.f;

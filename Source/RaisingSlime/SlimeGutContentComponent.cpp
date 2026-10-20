@@ -37,7 +37,6 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 	Proxy->SetCastShadow(false);
 	Proxy->SetMobility(EComponentMobility::Movable);
 
-	// Copy materials so rock/creature look matches world prey.
 	const int32 Mats = Prey->MeshComponent->GetNumMaterials();
 	for (int32 I = 0; I < Mats; ++I)
 	{
@@ -53,11 +52,14 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 
 	FGutEntry Entry;
 	Entry.Mesh = Proxy;
+	Entry.Prey = Prey;
+	Entry.Mass = Prey->Mass;
+	Entry.Trait = Prey->Trait;
+	Entry.AbsorbRemaining = FMath::Max(0.5f, AbsorbDuration);
 	Entry.BaseLocal = GutAnchorLocal() + FVector(
 		FMath::FRandRange(-10.f, 10.f),
 		FMath::FRandRange(-10.f, 10.f),
 		FMath::FRandRange(-6.f, 8.f));
-	// Pull from prey world position into the body center.
 	if (USceneComponent* Root = GetOwner()->GetRootComponent())
 	{
 		Entry.PullStartLocal = Root->GetComponentTransform().InverseTransformPosition(Prey->GetActorLocation());
@@ -75,8 +77,8 @@ void USlimeGutContentComponent::Swallow(ADevourable* Prey)
 
 	SwellBonus = FMath::Min(SwellBonus + SwallowSwell, 0.45f);
 
-	UE_LOG(LogTemp, Display, TEXT("SlimeGut: swallowed %s (gut=%d swell=+%.2f)"),
-		*Prey->GetLabel(), Entries.Num(), SwellBonus);
+	UE_LOG(LogTemp, Display, TEXT("SlimeGut: swallowed %s mass=%.1f trait=%s absorb=%.1fs (gut=%d)"),
+		*Prey->GetLabel(), Entry.Mass, *TraitText::Name(Entry.Trait), Entry.AbsorbRemaining, Entries.Num());
 }
 
 void USlimeGutContentComponent::BeginDissolveAll()
@@ -84,6 +86,7 @@ void USlimeGutContentComponent::BeginDissolveAll()
 	for (FGutEntry& E : Entries)
 	{
 		E.bDissolving = true;
+		E.bAbsorbNotified = true; // death clears mass via Director; do not double-absorb
 	}
 	if (Entries.Num() > 0)
 	{
@@ -110,6 +113,20 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 	if (!Entry.Mesh)
 	{
 		return;
+	}
+
+	if (!Entry.bDissolving && !Entry.bAbsorbNotified)
+	{
+		Entry.AbsorbRemaining -= Dt;
+		if (Entry.AbsorbRemaining <= 0.f)
+		{
+			Entry.AbsorbRemaining = 0.f;
+			Entry.bAbsorbNotified = true;
+			Entry.bDissolving = true;
+			OnGutAbsorbed.ExecuteIfBound(Entry.Mass, Entry.Trait, Entry.Prey.Get());
+			UE_LOG(LogTemp, Display, TEXT("SlimeGut: absorb complete mass=%.1f trait=%s"),
+				Entry.Mass, *TraitText::Name(Entry.Trait));
+		}
 	}
 
 	Entry.Phase += Dt * BobSpeed;
@@ -142,7 +159,6 @@ void USlimeGutContentComponent::TickEntry(FGutEntry& Entry, float Dt)
 		const float S = Entry.RestScale * FMath::Max(0.02f, Remain * Remain);
 		Entry.Mesh->SetRelativeScale3D(FVector(S));
 		Entry.Mesh->SetVisibility(Remain > 0.04f);
-		// Soft fade via scalar opacity if MIDs exist; otherwise scale melt is enough.
 		for (int32 I = 0; I < Entry.Mesh->GetNumMaterials(); ++I)
 		{
 			if (UMaterialInstanceDynamic* Mid = Entry.Mesh->CreateAndSetMaterialInstanceDynamic(I))

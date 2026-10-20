@@ -5,7 +5,7 @@
 #include "RaisingSlimeHud.generated.h"
 
 class USlimeHudWidget;
-class UDigestMenuWidget;
+class UTraitPanelWidget;
 
 UCLASS()
 class RAISINGSLIME_API ARaisingSlimeHUD : public AHUD
@@ -18,9 +18,10 @@ public:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	void OpenDigestMenu();
-	void CloseDigestMenu();
-	bool IsDigestMenuOpen() const { return bDigestOpen; }
+	void OpenTraitPanel();
+	void CloseTraitPanel();
+	void ToggleTraitPanel();
+	bool IsTraitPanelOpen() const { return bTraitPanelOpen; }
 
 protected:
 	void EnsureHudWidget();
@@ -29,7 +30,7 @@ protected:
 	TObjectPtr<USlimeHudWidget> HudWidget;
 
 	UPROPERTY()
-	TObjectPtr<UDigestMenuWidget> DigestWidget;
+	TObjectPtr<UTraitPanelWidget> TraitPanelWidget;
 
-	bool bDigestOpen = false;
+	bool bTraitPanelOpen = false;
 };
